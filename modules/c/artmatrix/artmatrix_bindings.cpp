@@ -202,4 +202,19 @@ mp_int_t artmatrix_get_framebuffer(mp_obj_t self_in, mp_buffer_info_t *bufinfo, 
     return 0;
 }
 
+static void __attribute__((constructor)) artmatrix_startup(void) {
+    gpio_init(PIMORONI_ARTMATRIX_SW_A);
+    gpio_pull_up(PIMORONI_ARTMATRIX_SW_A);
+    gpio_set_dir(PIMORONI_ARTMATRIX_SW_A, GPIO_IN);
+
+    gpio_init(PIMORONI_ARTMATRIX_SW_B);
+    gpio_pull_up(PIMORONI_ARTMATRIX_SW_B);
+    gpio_set_dir(PIMORONI_ARTMATRIX_SW_B, GPIO_IN);
+
+    gpio_init(PIMORONI_ARTMATRIX_SW_C);
+    gpio_pull_up(PIMORONI_ARTMATRIX_SW_C);
+    gpio_set_dir(PIMORONI_ARTMATRIX_SW_C, GPIO_IN);
+}
+
+
 }
