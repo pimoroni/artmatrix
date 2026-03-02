@@ -1,0 +1,46 @@
+#include "artmatrix_bindings.h"
+
+
+/***** Methods *****/
+MP_DEFINE_CONST_FUN_OBJ_1(artmatrix___del___obj, artmatrix___del__);
+MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_update_obj, artmatrix_update);
+MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_is_busy_obj, artmatrix_is_busy);
+
+
+/***** Binding of Methods *****/
+static const mp_rom_map_elem_t artmatrix_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&artmatrix___del___obj) },
+    { MP_ROM_QSTR(MP_QSTR_update), MP_ROM_PTR(&artmatrix_update_obj) },
+    { MP_ROM_QSTR(MP_QSTR_is_busy), MP_ROM_PTR(&artmatrix_is_busy_obj) },
+};
+
+static MP_DEFINE_CONST_DICT(artmatrix_locals_dict, artmatrix_locals_dict_table);
+
+/***** Class Definition *****/
+MP_DEFINE_CONST_OBJ_TYPE(
+    artmatrix_type,
+    MP_QSTR_artmatrix,
+    MP_TYPE_FLAG_NONE,
+    make_new, artmatrix_make_new,
+    buffer, artmatrix_get_framebuffer,
+    print, artmatrix_print,
+    locals_dict, (mp_obj_dict_t*)&artmatrix_locals_dict
+);
+
+/***** Globals Table *****/
+
+static const mp_map_elem_t artmatrix_globals_table[] = {
+    { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_artmatrix) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_artmatrix), (mp_obj_t)&artmatrix_type },
+
+    { MP_ROM_QSTR(MP_QSTR_WIDTH), MP_ROM_INT(128) },
+    { MP_ROM_QSTR(MP_QSTR_HEIGHT), MP_ROM_INT(128) }
+};
+static MP_DEFINE_CONST_DICT(mp_module_artmatrix_globals, artmatrix_globals_table);
+
+/***** Module Definition *****/
+const mp_obj_module_t artmatrix_user_cmodule = {
+    .base = { &mp_type_module },
+    .globals = (mp_obj_dict_t*)&mp_module_artmatrix_globals,
+};
+MP_REGISTER_MODULE(MP_QSTR_artmatrix, artmatrix_user_cmodule);
