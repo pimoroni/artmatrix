@@ -11,5 +11,6 @@ extern mp_obj_t artmatrix_make_new(const mp_obj_type_t *type, size_t n_args, siz
 extern mp_obj_t artmatrix___del__(mp_obj_t self_in);
 extern mp_obj_t artmatrix_update(mp_obj_t self_in);
 extern mp_obj_t artmatrix_is_busy(mp_obj_t self_in);
+extern mp_obj_t artmatrix_set_blocking(mp_obj_t self_in, mp_obj_t blocking_in);
 
 extern mp_int_t artmatrix_get_framebuffer(mp_obj_t self_in, mp_buffer_info_t *bufinfo, mp_uint_t flags);

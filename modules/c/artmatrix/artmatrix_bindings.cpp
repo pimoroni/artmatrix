@@ -69,6 +69,7 @@ typedef struct _artmatrix_obj_t {
     void *buf;
     volatile bool exit_core1;
     volatile bool flip;
+    bool blocking;
 } _artmatrix_obj_t;
 
 _artmatrix_obj_t *artmatrix_obj;
@@ -164,9 +165,9 @@ mp_obj_t artmatrix_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_k
     artmatrix_obj = mp_obj_malloc_with_finaliser(_artmatrix_obj_t, &artmatrix_type);
     artmatrix_obj->artmatrix = m_new_class(ArtMatrix);
     artmatrix_obj->flip = false;
+    artmatrix_obj->blocking = true;
 
     artmatrix_core1_start();
-    //artmatrix_obj->artmatrix->start(dma_complete);
 
     return MP_OBJ_FROM_PTR(artmatrix_obj);
 }
@@ -174,6 +175,12 @@ mp_obj_t artmatrix_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_k
 mp_obj_t artmatrix_is_busy(mp_obj_t self_in) {
     (void)self_in;
     return mp_obj_new_bool(artmatrix_obj->flip);
+}
+
+mp_obj_t artmatrix_set_blocking(mp_obj_t self_in, mp_obj_t blocking_in) {
+    (void)self_in;
+    artmatrix_obj->blocking = mp_obj_is_true(blocking_in);
+    return mp_const_none;
 }
 
 mp_obj_t artmatrix_update(mp_obj_t self_in) {
@@ -188,6 +195,13 @@ mp_obj_t artmatrix_update(mp_obj_t self_in) {
     artmatrix_obj->flip = true;
     artmatrix_debug("sync to core1\n");
     __sev();
+
+    // Block on the flip, since this is the front -> back buffer copy
+    // We will almost always immediately clear the screen after doing this,
+    // causing unsightly top-bottom tearing as the clear chases the flip.
+    while(artmatrix_obj->blocking && artmatrix_obj->flip) {
+        mp_event_handle_nowait();
+    };
 
     return mp_const_none;
 }

@@ -5,6 +5,7 @@
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix___del___obj, artmatrix___del__);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_update_obj, artmatrix_update);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_is_busy_obj, artmatrix_is_busy);
+MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_blocking_obj, artmatrix_set_blocking);
 
 
 /***** Binding of Methods *****/
@@ -12,6 +13,7 @@ static const mp_rom_map_elem_t artmatrix_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&artmatrix___del___obj) },
     { MP_ROM_QSTR(MP_QSTR_update), MP_ROM_PTR(&artmatrix_update_obj) },
     { MP_ROM_QSTR(MP_QSTR_is_busy), MP_ROM_PTR(&artmatrix_is_busy_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_blocking), MP_ROM_PTR(&artmatrix_set_blocking_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(artmatrix_locals_dict, artmatrix_locals_dict_table);
