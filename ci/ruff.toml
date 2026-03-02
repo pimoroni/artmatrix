@@ -17,15 +17,14 @@ builtins = [
     "vec2",
     "rect",
     "shape",
-    "screen",
 
-# badgeware.py
+# artmatrix.py
     "display",
-    "launch",
-    "run",
-    "loop",
-    "reset",
-    "fatal_error",
+    "screen",
+    "BUTTON_A",
+    "BUTTON_B",
+    "BUTTON_C",
+    "BUTTON_USER",
 
 # math.py
     "clamp",
@@ -45,27 +44,6 @@ builtins = [
     "file_exists",
     "is_dir",
 
-# rtc.py
-    "rtc",
-
-# state.py
-    "State",
-
-# badge.py
-    "badge",
-    "HIRES",
-    "LORES",
-    "VSYNC",
-    "FAST_UPDATE",
-    "FULL_UPDATE",
-    "MEDIUM_UPDATE",
-    "DITHER",
-    "BUTTON_A",
-    "BUTTON_B",
-    "BUTTON_C",
-    "BUTTON_UP",
-    "BUTTON_DOWN",
-    "BUTTON_HOME"
 ]
 
 # Include:

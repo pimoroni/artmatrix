@@ -45,4 +45,4 @@ const mp_obj_module_t artmatrix_user_cmodule = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t*)&mp_module_artmatrix_globals,
 };
-MP_REGISTER_MODULE(MP_QSTR_artmatrix, artmatrix_user_cmodule);
+MP_REGISTER_MODULE(MP_QSTR__artmatrix, artmatrix_user_cmodule);
