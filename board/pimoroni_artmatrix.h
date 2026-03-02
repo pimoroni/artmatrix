@@ -28,6 +28,27 @@
 
 #define PICO_PANIC_FUNCTION mp_pico_panic
 
+// 250 MHz - Working, but not tested on enough boards to fully verify.
+// ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 250
+#define PLL_SYS_REFDIV   (1)
+#define PLL_SYS_VCO_FREQ_HZ (1500000000)
+#define PLL_SYS_POSTDIV1 (6)
+#define PLL_SYS_POSTDIV2 (1)
+#define SYS_CLK_HZ       (250000000)
+
+// 200 MHz - Most of our testing was done at 200MHz.
+// ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 200
+/*
+#define PLL_SYS_REFDIV   (1)
+#define PLL_SYS_VCO_FREQ_HZ (1200000000)
+#define PLL_SYS_POSTDIV1 (6)
+#define PLL_SYS_POSTDIV2 (1)
+#define SYS_CLK_HZ       (200000000)
+*/
+
+// Support 250MHz if user manually overclocks
+#define CYW43_PIO_CLOCK_DIV_INT 3
+
 // --- RP2350 VARIANT ---
 // not PICO_RP2350A
 

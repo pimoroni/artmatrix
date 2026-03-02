@@ -87,12 +87,12 @@ void ArtMatrix::start(irq_handler_t handler) {
         pio_sm_set_clkdiv(pio_b, sm_row_b, clock_get_hz(clk_sys) / clock_hz);
 
         // Let PIO run wild and free!
-        /*pio_sm_set_clkdiv(pio_a, sm_data_a1, 1);
-        pio_sm_set_clkdiv(pio_a, sm_data_a2, 1);
-        pio_sm_set_clkdiv(pio_b, sm_data_b1, 1);
-        pio_sm_set_clkdiv(pio_b, sm_data_b2, 1);
-        pio_sm_set_clkdiv(pio_a, sm_row_a, 1);
-        pio_sm_set_clkdiv(pio_b, sm_row_b, 1);*/
+        pio_sm_set_clkdiv(pio_a, sm_data_a1, 1.5f);
+        pio_sm_set_clkdiv(pio_a, sm_data_a2, 1.5f);
+        pio_sm_set_clkdiv(pio_b, sm_data_b1, 1.5f);
+        pio_sm_set_clkdiv(pio_b, sm_data_b2, 1.5f);
+        pio_sm_set_clkdiv(pio_a, sm_row_a, 1.5f);
+        pio_sm_set_clkdiv(pio_b, sm_row_b, 1.5f);
 
         dma_channel_a1 = dma_claim_unused_channel(true);
         dma_channel_config config_a1 = dma_channel_get_default_config(dma_channel_a1);
