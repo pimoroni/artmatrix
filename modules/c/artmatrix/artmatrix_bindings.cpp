@@ -14,6 +14,15 @@ extern "C" {
 #include "py/builtin.h"
 #include "py/mpthread.h"
 
+// HACK: Shim up missing rp2_tud functions from our MSC patches
+bool rp2_tud_set_msc_ready() {
+    return false;
+}
+
+bool rp2_tud_is_msc_busy() {
+    return false;
+}
+
 void __printf_debug_flush() {
     for(auto i = 0u; i < 10; i++) {
         sleep_ms(2);
