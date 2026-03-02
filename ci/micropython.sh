@@ -154,12 +154,12 @@ function ci_cmake_build {
         CI_RELEASE_FILENAME=$BOARD
     fi
 
-    log_inform "Copying .uf2 to $(pwd)/$CI_RELEASE_FILENAME.uf2"
-    cp "$BUILD_DIR/firmware.uf2" $CI_RELEASE_FILENAME.uf2
+    log_inform "Copying -romfs.uf2 to $(pwd)/$CI_RELEASE_FILENAME.uf2"
+    cp "$BUILD_DIR/firmware-romfs.uf2" $CI_RELEASE_FILENAME.uf2
 
-    if [ -f "$BUILD_DIR/firmware-with-filesystem.uf2" ]; then
-        log_inform "Copying -with-filesystem .uf2 to $(pwd)/$CI_RELEASE_FILENAME-with-filesystem.uf2"
-        cp "$BUILD_DIR/firmware-with-filesystem.uf2" $CI_RELEASE_FILENAME-with-filesystem.uf2
+    if [ -f "$BUILD_DIR/firmware-romfs-with-filesystem.uf2" ]; then
+        log_inform "Copying -romfs-with-filesystem .uf2 to $(pwd)/$CI_RELEASE_FILENAME-with-filesystem.uf2"
+        cp "$BUILD_DIR/firmware-romfs-with-filesystem.uf2" $CI_RELEASE_FILENAME-with-filesystem.uf2
     fi
 }
 
