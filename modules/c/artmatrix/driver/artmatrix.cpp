@@ -315,7 +315,7 @@ void ArtMatrix::update(void) {
 
             offset += sy * width;
 
-            back_buffer[offset] = (GAMMA_10BIT[rgb & 0xff] << 20) | (GAMMA_10BIT[(rgb >> 8) & 0xff] << 10) | (GAMMA_10BIT[(rgb >> 16) & 0xff] << 0);
+            back_buffer[offset] = (GAMMA_10BIT[rgb & 0xff] << 0) | (GAMMA_10BIT[(rgb >> 8) & 0xff] << 10) | (GAMMA_10BIT[(rgb >> 16) & 0xff] << 20);
         }
     }
 }
