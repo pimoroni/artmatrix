@@ -1,27 +1,11 @@
-import board
-import neopixel
-
-_led = neopixel.NeoPixel(board.LEDS, 1)
-_led_values = (0, 0, 0)
-
-
-def led(*args):
-    global _led_values
-    if args:
-        _led_values = (args[0], ) * 3 if len(args) == 1 else args
-        _led[0] = [int(v ** 2.2 * 255) for v in _led_values]
-        _led.write()
-    return _led_values
-
-
-led(0.1, 0, 0)
-
-import _artmatrix
 import machine
-
 import binascii
 import builtins
+import board
+
+import _artmatrix
 import picovector
+from plasma import WS2812
 
 
 builtins.BUTTON_A = board.SW_A
@@ -45,7 +29,30 @@ builtins.screen = image(128, 128, memoryview(display))
 
 builtins.sensor = machine.ADC(board.SENSOR_IN)
 
-builtins.led = led
+# LED control
+class LEDS:
+    def __init__(self):
+        self._leds = WS2812(4)
+        self._leds.start()
+
+    def _to_rgb(self, i):
+        if isinstance(i, color):
+            i = i.p & 0xffffffff
+            return (i >> 0) & 0xff, (i >> 8) & 0xff, (i >> 16) & 0xff
+        if isinstance(i, tuple):
+            return i
+        return i, i, i
+
+    def __call__(self, *args):
+        args = (args[0], ) * 4 if len(args) == 1 else args
+        for i in range(4):
+            self._leds.set_rgb(3 - i, *self._to_rgb(args[i]))
+
+    def clear(self):
+        self(0)
+
+
+builtins.leds = LEDS()
 
 # Import modules
 __import__(".frozen/artmatrix/math")
@@ -62,4 +69,3 @@ screen.pen = color.white
 screen.text("Ready!", 28, 50)
 display.update()
 
-led(0)

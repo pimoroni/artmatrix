@@ -82,8 +82,8 @@ class ArtMatrix {
     uint bit_a = 0;
     uint row_a = 0;
 
-    const PIO pio_a = pio0;
-    const PIO pio_b = pio1;
+    const PIO pio_a = pio1;
+    const PIO pio_b = pio2;
 
     const uint sm_data_a1 = 0;
     const uint sm_data_a2 = 1;

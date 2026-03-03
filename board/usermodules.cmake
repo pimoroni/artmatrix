@@ -31,6 +31,7 @@ include(micropython-common-breakouts)
 
 # Utility
 include(adcfft/micropython)
+include(plasma/micropython)
 
 # LEDs & Matrices
 include(modules/c/artmatrix/micropython)
