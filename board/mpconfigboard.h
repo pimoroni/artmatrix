@@ -4,7 +4,7 @@
 #define MICROPY_HW_ROMFS_BYTES                  (1 * 1024 * 1024)
 #define MICROPY_HW_FLASH_STORAGE_BYTES          (PICO_FLASH_SIZE_BYTES - (2 * 1024 * 1024) - MICROPY_HW_ROMFS_BYTES)
 
-#define MICROPY_OBJ_REPR (MICROPY_OBJ_REPR_C)
+#define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_C)
 
 // Set up networking.
 #define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT     "ArtMatrix"
@@ -32,6 +32,7 @@ int mp_hal_is_pin_reserved(int n);
 
 // Enable PSRAM
 #define MICROPY_HW_ENABLE_PSRAM                 (1)
+#define MICROPY_GC_SPLIT_HEAP                   (0)
 
 // Alias the chip select pin specified by presto.h
 #define MICROPY_HW_PSRAM_CS_PIN                 PIMORONI_ARTMATRIX_PSRAM_CS_PIN
