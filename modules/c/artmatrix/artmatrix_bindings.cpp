@@ -81,47 +81,84 @@ typedef struct _artmatrix_obj_t {
     bool blocking;
 } _artmatrix_obj_t;
 
-_artmatrix_obj_t *artmatrix_obj;
+static _artmatrix_obj_t artmatrix_obj;
 
-
-void __isr dma_complete() {
-    if(artmatrix_obj) artmatrix_obj->artmatrix->dma_complete();
+void __isr __not_in_flash_func(dma_complete)() {
+    if(artmatrix_obj.artmatrix) artmatrix_obj.artmatrix->dma_complete();
 }
+
+#define LOCKOUT_MAGIC_START 0x73a8831eu
+#define LOCKOUT_MAGIC_END (~LOCKOUT_MAGIC_START)
 
 #define stack_size 8192u
 static uint32_t core1_stack[stack_size] = {0};
+
+
+// ArtMatrix must be allocated into SRAM (not PSRAM), so reserve a buffer
+// for it here - Presto_make_new will placement new into this buffer.
+__attribute__((section(".uninitialized_data"))) static uint32_t artmatrix_buffer[sizeof(ArtMatrix) / sizeof(uint32_t)];
+
+
+// Alternative version of the lockout handler which does not disable interrupts
+// We know that all interrupts running on core1 will not access flash or PSRAM, so this is safe.
+static void __isr __not_in_flash_func(artmatrix_core1_lockout_handler)(void) {
+    multicore_fifo_clear_irq();
+    while (multicore_fifo_rvalid()) {
+        if (sio_hw->fifo_rd == LOCKOUT_MAGIC_START) {
+            sio_hw->fifo_wr = LOCKOUT_MAGIC_START;
+            __sev();
+            while (multicore_fifo_pop_blocking_inline() != LOCKOUT_MAGIC_END) {
+                tight_loop_contents(); // not tight but endless potentially
+            }
+            sio_hw->fifo_wr = LOCKOUT_MAGIC_END;
+            __sev();
+        }
+    }
+}
 
 void artmatrix_core1_entry() {
     // The multicore lockout uses the FIFO, so we use just use sev and volatile flags to signal this core
     multicore_lockout_victim_init();
 
-    artmatrix_obj->artmatrix->start(dma_complete);
+    // Replace the lockout handler
+    irq_handler_t sdk_handler = irq_get_exclusive_handler(SIO_IRQ_FIFO);
+    irq_remove_handler(SIO_IRQ_FIFO, sdk_handler);
+    irq_set_exclusive_handler(SIO_IRQ_FIFO, artmatrix_core1_lockout_handler);
+
+    artmatrix_obj.artmatrix->start(dma_complete);
 
     multicore_fifo_push_blocking(0); // TODO: handle issues here?
 
     // artmatrix is now running the display using interrupts on this core.
     // We can also drive the backlight if requested.
-    while (true) {
-        if (artmatrix_obj->exit_core1) {
+    while (!artmatrix_obj.exit_core1) {
+        if (artmatrix_obj.exit_core1) {
             break;
         }
-        if (artmatrix_obj->flip) {
-            artmatrix_obj->artmatrix->update();
-            artmatrix_obj->flip = false;
+        if (artmatrix_obj.flip) {
+            artmatrix_obj.artmatrix->update();
+            artmatrix_obj.flip = false;
         }
     }
 
-    artmatrix_obj->artmatrix->stop(dma_complete);
+    artmatrix_obj.artmatrix->stop(dma_complete);
+
+    // Restore the original lockout handler and deinit.
+    irq_remove_handler(SIO_IRQ_FIFO, artmatrix_core1_lockout_handler);
+    irq_set_exclusive_handler(SIO_IRQ_FIFO, sdk_handler);
+    multicore_lockout_victim_deinit();
 
     multicore_fifo_push_blocking(0);
 }
 
+void artmatrix_core1_reset() {
+    multicore_reset_core1();
+    artmatrix_obj.exit_core1 = false;
+    artmatrix_obj.flip = false;
+}
+
 void artmatrix_core1_start() {
     artmatrix_debug("launch core1\n");
-    multicore_reset_core1();
-    artmatrix_obj->exit_core1 = false;
-    artmatrix_obj->flip = false;
-
     // Micropython uses all of both scratch memory (and more!) for core0 stack, 
     // so we must supply our own small stack for core1 here.
     multicore_launch_core1_with_stack(artmatrix_core1_entry, core1_stack, stack_size);
@@ -137,13 +174,13 @@ void artmatrix_core1_start() {
 
 void artmatrix_core1_stop() {
     artmatrix_debug("signal core1\n");
-    artmatrix_obj->flip = false;
-    artmatrix_obj->exit_core1 = true;
+    artmatrix_obj.flip = false;
+    artmatrix_obj.exit_core1 = true;
     __sev();
 
-    int fifo_code;
+    uint32_t fifo_code;
     do {
-        fifo_code = multicore_fifo_pop_blocking();
+        while (!multicore_fifo_pop_timeout_us(1000, &fifo_code)) __sev();
         if (fifo_code == 1) {
             // TODO: LED cleanup here
         }
@@ -161,54 +198,64 @@ void artmatrix_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t 
 
 /***** Destructor ******/
 mp_obj_t artmatrix___del__(mp_obj_t self_in) {
-    (void)self_in;
-    artmatrix_core1_stop();
-    m_del_class(ArtMatrix, artmatrix_obj->artmatrix);
-    artmatrix_obj->artmatrix = nullptr;
-    artmatrix_obj = nullptr;
+    // artmatrix_core1_stop();
+    // m_del_class(ArtMatrix, artmatrix_obj.artmatrix);
+    // artmatrix_obj.artmatrix->~ArtMatrix();
+    // artmatrix_obj.artmatrix = nullptr;
+    // artmatrix_obj = nullptr;
     return mp_const_none;
 }
 
 /***** Constructor *****/
 mp_obj_t artmatrix_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
-    artmatrix_obj = mp_obj_malloc_with_finaliser(_artmatrix_obj_t, &artmatrix_type);
-    artmatrix_obj->artmatrix = m_new_class(ArtMatrix);
-    artmatrix_obj->flip = false;
-    artmatrix_obj->blocking = true;
+
+    // Clean up any existing instance of Art Matrix.
+    if(artmatrix_obj.artmatrix) {
+        artmatrix_core1_stop();
+        artmatrix_obj.artmatrix->~ArtMatrix();
+        artmatrix_obj.artmatrix = nullptr;
+    }
+
+    //artmatrix_obj = mp_obj_malloc_with_finaliser(_artmatrix_obj_t, &artmatrix_type);
+    artmatrix_core1_reset();
+    artmatrix_obj.base.type = &artmatrix_type;
+    artmatrix_obj.artmatrix = new(artmatrix_buffer) ArtMatrix();
+    artmatrix_obj.flip = false;
+    artmatrix_obj.blocking = true;
 
     artmatrix_core1_start();
 
-    return MP_OBJ_FROM_PTR(artmatrix_obj);
+    return MP_OBJ_FROM_PTR(&artmatrix_obj);
 }
 
 mp_obj_t artmatrix_is_busy(mp_obj_t self_in) {
     (void)self_in;
-    return mp_obj_new_bool(artmatrix_obj->flip);
+    return mp_obj_new_bool(artmatrix_obj.flip);
 }
 
 mp_obj_t artmatrix_set_blocking(mp_obj_t self_in, mp_obj_t blocking_in) {
     (void)self_in;
-    artmatrix_obj->blocking = mp_obj_is_true(blocking_in);
+    artmatrix_obj.blocking = mp_obj_is_true(blocking_in);
     return mp_const_none;
 }
 
 mp_obj_t artmatrix_update(mp_obj_t self_in) {
     (void)self_in;
-    //artmatrix_obj->artmatrix->update();
+    //artmatrix_obj.artmatrix->update();
 
     artmatrix_debug("wait for core1 flip\n");
-    while(artmatrix_obj->flip) {
+    while(artmatrix_obj.flip) {
         mp_event_handle_nowait();
     };
     artmatrix_debug("trigger core1 flip\n");
-    artmatrix_obj->flip = true;
+    artmatrix_obj.flip = true;
     artmatrix_debug("sync to core1\n");
     __sev();
 
     // Block on the flip, since this is the front -> back buffer copy
     // We will almost always immediately clear the screen after doing this,
     // causing unsightly top-bottom tearing as the clear chases the flip.
-    while(artmatrix_obj->blocking && artmatrix_obj->flip) {
+    while(artmatrix_obj.blocking && artmatrix_obj.flip) {
         mp_event_handle_nowait();
     };
 
@@ -219,7 +266,7 @@ mp_obj_t artmatrix_update(mp_obj_t self_in) {
 mp_int_t artmatrix_get_framebuffer(mp_obj_t self_in, mp_buffer_info_t *bufinfo, mp_uint_t flags) {
     (void)self_in;
     (void)flags;
-    bufinfo->buf = artmatrix_obj->artmatrix->get_framebuffer();
+    bufinfo->buf = artmatrix_obj.artmatrix->get_framebuffer();
     bufinfo->len = 128 * 128 * 4;
     bufinfo->typecode = 'B';
     return 0;
