@@ -123,11 +123,12 @@ void ArtMatrix::start(irq_handler_t handler) {
         dma_channel_configure(dma_channel_b2, &config_b2, &pio_b->txf[sm_data_b2], NULL, 0, false);
 
         // Same handler for all four DMA channels
-        irq_add_shared_handler(DMA_IRQ_0, handler, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
+        irq_set_exclusive_handler(DMA_IRQ_1, handler);
+        irq_set_priority(DMA_IRQ_1, PICO_HIGHEST_IRQ_PRIORITY);
 
-        dma_channel_set_irq0_enabled(dma_channel_a1, true);
+        dma_channel_set_irq1_enabled(dma_channel_a1, true);
 
-        irq_set_enabled(DMA_IRQ_0, true);
+        irq_set_enabled(DMA_IRQ_1, true);
 
         row_a = 0;
         bit_a = 0;
@@ -158,10 +159,10 @@ void ArtMatrix::start(irq_handler_t handler) {
 }
 
 void ArtMatrix::stop(irq_handler_t handler) {
-    irq_set_enabled(DMA_IRQ_0, false);
+    irq_set_enabled(DMA_IRQ_1, false);
 
     if(dma_channel_a1 != -1 &&  dma_channel_is_claimed(dma_channel_a1)) {
-        dma_channel_set_irq0_enabled(dma_channel_a1, false);
+        dma_channel_set_irq1_enabled(dma_channel_a1, false);
         dma_channel_wait_for_finish_blocking(dma_channel_a1);
         dma_channel_cleanup(dma_channel_a1);
         dma_channel_unclaim(dma_channel_a1);
@@ -185,7 +186,7 @@ void ArtMatrix::stop(irq_handler_t handler) {
         dma_channel_unclaim(dma_channel_b2);
     }
 
-    irq_remove_handler(DMA_IRQ_0, handler);
+    irq_remove_handler(DMA_IRQ_1, handler);
 
     if(pio_sm_is_claimed(pio_a, sm_data_a1)) {
         pio_sm_set_enabled(pio_a, sm_data_a1, false);
@@ -244,8 +245,8 @@ ArtMatrix::~ArtMatrix() {
 
 void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
 
-    if(dma_channel_get_irq0_status(dma_channel_a1)) {
-        dma_channel_acknowledge_irq0(dma_channel_a1);
+    if(dma_channel_get_irq1_status(dma_channel_a1)) {
+        dma_channel_acknowledge_irq1(dma_channel_a1);
         dma_channel_wait_for_finish_blocking(dma_channel_a2);
         dma_channel_wait_for_finish_blocking(dma_channel_b1);
         dma_channel_wait_for_finish_blocking(dma_channel_b2);
