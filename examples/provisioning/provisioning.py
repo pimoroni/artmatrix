@@ -13,7 +13,7 @@ code = qrcode.QRCode()
 
 DOMAIN = "pico.wireless"
 ssid = "Art Matrix Setup"
-password = hexlify(unique_id()).decode('utf-8')[:8]
+password = hexlify(unique_id()).decode("utf-8")[:8]
 pw_length, _ = screen.measure_text(password)
 ssid_length, _ = screen.measure_text(ssid)
 
@@ -61,7 +61,7 @@ def write_config():
     with open("config.py", "r") as infile:
         lines = infile.read().split("\n")
 
-    for i in range(0, len(lines)):
+    for i in range(len(lines)):
         line = lines[i]
         parts = line.split("=", 1)
         if len(parts) == 2:
@@ -109,17 +109,15 @@ display.update()
 
 # TODO This did not seem to work for me...
 @server.route("/wrong-host-redirect", methods=["GET"])
-def wrong_host_redirect(request):
+def wrong_host_redirect(_request):
     # if the client requested a resource at the wrong host then present
     # a meta redirect so that the captive portal browser can be sent to the correct location
-    body = f"<!DOCTYPE html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://{DOMAIN}/provision-welcome'\" /></head>"
-    return body
+    return f"<!DOCTYPE html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://{DOMAIN}/provision-welcome'\" /></head>"
 
 
 @server.route("/provision-welcome", methods=["GET"])
-def provision_welcome(request):
-    response = render_template("html/welcome.html")
-    return response
+def provision_welcome(_request):
+    return render_template("html/welcome.html")
 
 
 @server.route("/provision-step-1-nickname", methods=["GET", "POST"])
@@ -128,8 +126,7 @@ def provision_step_1_nickname(request):
         config.nickname = request.form["nickname"]
         write_config()
         return redirect(f"http://{DOMAIN}/provision-step-2-wifi")
-    else:
-        return render_template("html/provision-step-1-nickname.html")
+    return render_template("html/provision-step-1-nickname.html")
 
 
 @server.route("/provision-step-2-wifi", methods=["GET", "POST"])
@@ -139,8 +136,7 @@ def provision_step_2_wifi(request):
         config.wifi_password = request.form["wifi_password"]
         write_config()
         return redirect(f"http://{DOMAIN}/provision-step-5-done")
-    else:
-        return render_template("html/provision-step-2-wifi.html")
+    return render_template("html/provision-step-2-wifi.html")
 
 
 @server.route("/provision-step-5-done", methods=["GET", "POST"])
@@ -152,13 +148,13 @@ def provision_step_5_done(request):
     # should reset the board
     if request.method == "POST":
         machine.reset()
-        return
+        return None
 
     return render_template("html/provision-step-5-done.html")
 
 
 @server.route("/networks.json")
-def networks(request):
+def networks(_request):
     networks = []
     for network in ap.scan():
         network = network[0].decode("ascii").strip()
