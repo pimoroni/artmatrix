@@ -94,16 +94,11 @@ def draw_qr_code(ox, oy, size, code):
             if code.get_module(x, y):
                 screen.rectangle(ox + x * module_size, oy + y * module_size, module_size, module_size)
 
-    tx = 64 - (ssid_length / 2)
-    screen.text(f"{ssid}", tx, y + 12)
-    tx = 64 - (pw_length / 2)
-    screen.text(f"{password}", tx, y + 24)
-
 
 screen.pen = color.rgb(0, 0, 0)
 screen.clear()
 code.set_text(qr_payload)
-draw_qr_code(0, 4, 110, code)
+draw_qr_code(0, 4, 80, code)
 display.update()
 
 
@@ -115,43 +110,15 @@ def wrong_host_redirect(_request):
     return f"<!DOCTYPE html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://{DOMAIN}/provision-welcome'\" /></head>"
 
 
-@server.route("/provision-welcome", methods=["GET"])
-def provision_welcome(_request):
-    return render_template("html/welcome.html")
-
-
-@server.route("/provision-step-1-nickname", methods=["GET", "POST"])
-def provision_step_1_nickname(request):
-    if request.method == "POST":
-        config.nickname = request.form["nickname"]
-        write_config()
-        return redirect(f"http://{DOMAIN}/provision-step-2-wifi")
-    return render_template("html/provision-step-1-nickname.html")
-
-
-@server.route("/provision-step-2-wifi", methods=["GET", "POST"])
-def provision_step_2_wifi(request):
+@server.route("/provision-welcome", methods=["GET", "POST"])
+def provision_welcome(request):
     if request.method == "POST":
         config.wifi_ssid = request.form["wifi_ssid"]
         config.wifi_password = request.form["wifi_password"]
+        config.provisioned = True
         write_config()
-        return redirect(f"http://{DOMAIN}/provision-step-5-done")
-    return render_template("html/provision-step-2-wifi.html")
-
-
-@server.route("/provision-step-5-done", methods=["GET", "POST"])
-def provision_step_5_done(request):
-    config.provisioned = True
-    write_config()
-
-    # a post request to the done handler means we're finished and
-    # should reset the board
-    if request.method == "POST":
         machine.reset()
-        return None
-
-    return render_template("html/provision-step-5-done.html")
-
+    return render_template("html/provision-wifi.html")
 
 @server.route("/networks.json")
 def networks(_request):

@@ -3,7 +3,7 @@
 {{render_template("html/header-mini.html")}}
 
 <section id="wifi_details">
-  <form id="main" action="/provision-step-2-wifi" method="post">
+  <form id="main" action="/provision-welcome" method="post">
     <h2>OK, next up we'll need some WiFi details.</h2>
     <aside>In order to set the time and upload your data we will need access to a wireless internet connection.</aside>
 
@@ -31,8 +31,8 @@
   </form>
 
   <nav>
-    <button class="back" onclick="document.location = '/provision-step-1-nickname'"><span>➔</span></button>
-    <button type="submit" form="main">Logging ➔</button>
+    <button class="back" onclick="document.location = '/provision-welcome'"><span>➔</span></button>
+    <button type="submit" form="main">Done! ➔</button>
   </nav>
 
 </section>
