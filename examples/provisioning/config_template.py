@@ -5,10 +5,8 @@
 
 provisioned = False
 
-# enter a nickname for this board
-nickname = None
-
 # network access details
 wifi_ssid = None
 wifi_password = None
+wifi_hostname = None
 wifi_country = "GB"

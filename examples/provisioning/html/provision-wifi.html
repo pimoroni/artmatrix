@@ -8,6 +8,13 @@
     <aside>In order to set the time and upload your data we will need access to a wireless internet connection.</aside>
 
     <br>
+
+    <h2>Enter a name for your device</h2>
+    <fieldset>
+      <input id="wifi_hostname" name="wifi_hostname" type="text" value="{{config.wifi_hostname}}" placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
+    </fieldset>
+
+    <br>
     
     <h2>Select your WiFi network.</h2>
     <aside>We've had a poke around and these are the networks we can see. Not seeing your network? <a href="javascript: loadNetworks();">Try scanning again</a>.</aside>
@@ -31,7 +38,6 @@
   </form>
 
   <nav>
-    <button class="back" onclick="document.location = '/provision-welcome'"><span>➔</span></button>
     <button type="submit" form="main">Done! ➔</button>
   </nav>
 

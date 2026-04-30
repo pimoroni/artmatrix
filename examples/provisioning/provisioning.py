@@ -115,6 +115,7 @@ def provision_welcome(request):
     if request.method == "POST":
         config.wifi_ssid = request.form["wifi_ssid"]
         config.wifi_password = request.form["wifi_password"]
+        config.wifi_hostname = request.form["wifi_hostname"]
         config.provisioned = True
         write_config()
         machine.reset()
