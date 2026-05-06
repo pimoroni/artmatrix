@@ -1,0 +1,99 @@
+{{render_template("html/header.html")}}
+{{render_template("html/header-mini.html")}}
+
+<br>
+<h1>Install Plugins:</h1>
+<br>
+<script>
+  function loadPlugins() {
+    fetch("/index.json")
+    .then((response) => response.json())
+    .then((data) => {
+      for(let plugin of data.plugins) {
+        console.log(plugin);
+        var list = document.getElementById("selected-plugin");
+        var item = document.createElement("option");
+        item.textContent = plugin;
+        list.appendChild(item);
+      }
+    })
+  }
+
+  loadPlugins()  
+</script>
+
+<form id="plugin-select" action="/config" method="post">
+    <label for="selected-plugin">Select a plugin:</label>
+    <br>
+    <select name="selected-plugin" id="selected-plugin">
+    </select>
+    <button type="submit" form="plugin-select">install</button>
+</form>
+
+<br>
+<h1>Order Plugins:</h1>
+<br>
+
+<link rel="stylesheet" href="https://code.jquery.com/ui/1.14.2/themes/base/jquery-ui.css">
+<link rel="stylesheet" href="/resources/demos/style.css">
+<style>
+#enabled_plugins, #disabled_plugins {
+border: 1px solid #eee;
+width: 142px;
+min-height: 20px;
+list-style-type: none;
+margin: 0;
+padding: 5px 0 0 0;
+float: left;
+margin-right: 10px;
+}
+#enabled_plugins li, #disabled_plugins li {
+margin: 0 5px 5px 5px;
+padding: 5px;
+font-size: 1.2em;
+width: 120px;
+}
+</style>
+<script src="https://code.jquery.com/jquery-3.7.1.js"></script>
+<script src="https://code.jquery.com/ui/1.14.2/jquery-ui.js"></script>
+<script>
+$( function() {
+$( "#enabled_plugins, #disabled_plugins" ).sortable({
+    connectWith: ".connectedSortable"
+}).disableSelection();
+} );
+</script>
+
+
+<ul id="enabled_plugins" class="connectedSortable">
+    <li class="ui-state-highlight">Item 1</li>
+    <li class="ui-state-highlight">Item 2</li>
+    <li class="ui-state-highlight">Item 3</li>
+    <li class="ui-state-highlight">Item 4</li>
+    <li class="ui-state-highlight">Item 5</li>
+</ul>
+
+<ul id="disabled_plugins" class="connectedSortable">
+    <li class="ui-state-default">Item 1</li>
+    <li class="ui-state-default">Item 2</li>
+    <li class="ui-state-default">Item 3</li>
+    <li class="ui-state-default">Item 4</li>
+    <li class="ui-state-default">Item 5</li>
+</ul>
+
+<form id="plugin-reorder" action="/reorder" method="post">
+    <input type="hidden" id="enabled_ordered" name="enabled_ordered">
+    <button type="submit" onClick="sortEnabled()" form="plugin-reorder">save order</button>
+</form>
+
+<script>
+    function sortEnabled() {
+        $( "#enabled_plugins" ).sortable( "refreshPositions" );
+        var sorted = $( "#enabled_plugins" ).sortable( "serialize");
+        console.log(sorted)
+        input = document.getElementById("enabled_ordered");
+        input.value = sorted;
+    }
+</script>
+
+{{render_template("html/footer.html")}}

@@ -121,6 +121,7 @@ def provision_welcome(request):
         machine.reset()
     return render_template("html/provision-wifi.html")
 
+
 @server.route("/networks.json")
 def networks(_request):
     networks = []
