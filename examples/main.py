@@ -52,8 +52,11 @@ DOMAIN = wifi.ipv4()
 if config.enabled_plugins:
     enabled_plugins = config.enabled_plugins
 else:
-    # get a list of all the plugins current_pluginly installed
-    enabled_plugins = [p for p in os.listdir("lib/plugins")]
+    try:
+        # get a list of all the plugins current_pluginly installed
+        enabled_plugins = [p for p in os.listdir("lib/plugins")]
+    except OSError:
+        pass   # We want to handle this case of no plugins being installed.
 
 NUM_PLUGINS = len(enabled_plugins)
 modules = []
