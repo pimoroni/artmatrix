@@ -110,6 +110,10 @@ def edit_config(request):
         plugin = request.form["selected-plugin"]
         install_url = f"github:pimoroni/monkey-banana/{plugin}"
         mip.install(install_url)
+
+        # add the newly installed plugin to the enabled list and save it.
+        config.enabled_plugins.append(plugin)
+        write_config()
     return render_template("html/edit-config.html")
 
 
