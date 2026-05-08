@@ -116,15 +116,11 @@ def edit_config(request):
 @server.route("/reorder", methods=["POST"])
 def reorder_plugins(request):
 
-    print(request.form["enabled_ordered"], request.form["disabled_ordered"])
-
     if request.method == "POST":
         config.enabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["enabled_ordered"].split("&")] if kv[0] == "plugin"]
         config.disabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["disabled_ordered"].split("&")] if kv[0] == "plugin"]
 
         write_config()
-
-        print(config.enabled_plugins, config.enabled_plugins)
 
     return redirect(f"http://{DOMAIN}/config")
 
