@@ -64,6 +64,24 @@ for plugin in enabled_plugins:
     modules.append(__import__(f"lib/plugins/{plugin}"))
 
 
+def write_config():
+    lines = []
+    with open("config.py", "r") as infile:
+        lines = infile.read().split("\n")
+
+    for i in range(len(lines)):
+        line = lines[i]
+        parts = line.split("=", 1)
+        if len(parts) == 2:
+            key = parts[0].strip()
+            if hasattr(config, key):
+                value = getattr(config, key)
+                lines[i] = f"{key} = {repr(value)}"
+
+    with open("config.py", "w") as outfile:
+        outfile.write("\n".join(lines))
+
+
 @server.catchall()
 def catchall(request):
     # requested domain was wrong
@@ -98,10 +116,23 @@ def edit_config(request):
 @server.route("/reorder", methods=["POST"])
 def reorder_plugins(request):
 
+    print(request.form["enabled_ordered"], request.form["disabled_ordered"])
+
     if request.method == "POST":
-        print(request.form["enabled_ordered"])
+        config.enabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["enabled_ordered"].split("&")] if kv[0] == "plugin"]
+        config.disabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["disabled_ordered"].split("&")] if kv[0] == "plugin"]
+
+        write_config()
+
+        print(config.enabled_plugins, config.enabled_plugins)
 
     return redirect(f"http://{DOMAIN}/config")
+
+
+@server.route("/plugins.json")
+def plugins(request):
+    j = {"enabled": config.enabled_plugins, "disabled": config.disabled_plugins}
+    return json.dumps(j), 200, "application/json"
 
 
 @server.route("/index.json")

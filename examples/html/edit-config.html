@@ -10,12 +10,37 @@
     .then((response) => response.json())
     .then((data) => {
       for(let plugin of data.plugins) {
-        console.log(plugin);
         var list = document.getElementById("selected-plugin");
         var item = document.createElement("option");
         item.textContent = plugin;
         list.appendChild(item);
       }
+    })
+
+    fetch("/plugins.json")
+    .then((response) => response.json())
+    .then((data) => {
+        Object.keys(data).forEach(key => {
+            console.log(`${key}: ${data[key]}`);
+            data[key].forEach(plugin => {
+                if (plugin) {
+                    if (key == "enabled"){
+                    var item = document.createElement("li");
+                    var list = document.getElementById("enabled_plugins");
+                    item.id = `plugin_${plugin}`;
+                    item.textContent = `${plugin}`;
+                    item.className = "ui-state-highlight ui-sortable-handle";
+                    list.appendChild(item);
+                } else if (key == "disabled") {
+                    var item = document.createElement("li");
+                    var list = document.getElementById("disabled_plugins");
+                    item.id = `plugin_${plugin}`;
+                    item.textContent = `${plugin}`;
+                    list.appendChild(item);
+                    }
+                }
+            });
+        });
     })
   }
 
@@ -65,33 +90,26 @@ $( "#enabled_plugins, #disabled_plugins" ).sortable({
 
 
 <ul id="enabled_plugins" class="connectedSortable">
-    <li class="ui-state-highlight">Item 1</li>
-    <li class="ui-state-highlight">Item 2</li>
-    <li class="ui-state-highlight">Item 3</li>
-    <li class="ui-state-highlight">Item 4</li>
-    <li class="ui-state-highlight">Item 5</li>
 </ul>
 
 <ul id="disabled_plugins" class="connectedSortable">
-    <li class="ui-state-default">Item 1</li>
-    <li class="ui-state-default">Item 2</li>
-    <li class="ui-state-default">Item 3</li>
-    <li class="ui-state-default">Item 4</li>
-    <li class="ui-state-default">Item 5</li>
 </ul>
 
 <form id="plugin-reorder" action="/reorder" method="post">
     <input type="hidden" id="enabled_ordered" name="enabled_ordered">
-    <button type="submit" onClick="sortEnabled()" form="plugin-reorder">save order</button>
+    <input type="hidden" id="disabled_ordered" name="disabled_ordered">
+    <button type="submit" onClick="sortLists()" form="plugin-reorder">save order</button>
 </form>
 
 <script>
-    function sortEnabled() {
+    function sortLists() {
         $( "#enabled_plugins" ).sortable( "refreshPositions" );
-        var sorted = $( "#enabled_plugins" ).sortable( "serialize");
-        console.log(sorted)
-        input = document.getElementById("enabled_ordered");
-        input.value = sorted;
+        var enabled_sorted = $( "#enabled_plugins" ).sortable( "serialize", {key: "plugin"} );
+        var disabled_sorted = $( "#disabled_plugins" ).sortable( "serialize", {key: "plugin"} );
+        enabled_input = document.getElementById("enabled_ordered");
+        enabled_input.value = enabled_sorted;
+        disabled_input = document.getElementById("disabled_ordered");
+        disabled_input.value = disabled_sorted;
     }
 </script>
 
