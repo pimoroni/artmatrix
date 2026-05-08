@@ -112,8 +112,9 @@ def edit_config(request):
         mip.install(install_url)
 
         # add the newly installed plugin to the enabled list and save it.
-        config.enabled_plugins.append(plugin)
-        write_config()
+        if plugin not in config.enabled_plugins:
+            config.enabled_plugins.append(plugin)
+            write_config()
     return render_template("html/edit-config.html")
 
 
