@@ -31,6 +31,9 @@ INDEX_URL = "https://raw.githubusercontent.com/pimoroni/monkey-banana/refs/heads
 DELAY = config.delay
 last_changed = time.time()
 current_plugin = 0
+enabled_plugins = {}
+NUM_PLUGINS = 0
+modules = []
 
 # Wifi connect
 # Will probably change at some point
@@ -49,19 +52,30 @@ DOMAIN = wifi.ipv4()
 
 # list of installed plugins
 # and import the modules, sorted in a list
-if config.enabled_plugins:
-    enabled_plugins = config.enabled_plugins
-else:
-    try:
-        # get a list of all the plugins current_pluginly installed
-        enabled_plugins = [p for p in os.listdir("lib/plugins")]
-    except OSError:
-        pass   # We want to handle this case of no plugins being installed.
 
-NUM_PLUGINS = len(enabled_plugins)
-modules = []
-for plugin in enabled_plugins:
-    modules.append(__import__(f"lib/plugins/{plugin}"))
+
+def load_plugins():
+    global enabled_plugins, NUM_PLUGINS, modules, current_plugin
+
+    if config.enabled_plugins:
+        enabled_plugins = config.enabled_plugins
+    else:
+        try:
+            # get a list of all the plugins current_pluginly installed
+            enabled_plugins = [p for p in os.listdir("lib/plugins")]
+        except OSError:
+            pass   # We want to handle this case of no plugins being installed.
+
+    NUM_PLUGINS = len(enabled_plugins)
+    modules = []
+    for plugin in enabled_plugins:
+        modules.append(__import__(f"lib/plugins/{plugin}"))
+
+    # reset the current to zero, start from the beginning.
+    current_plugin = 0
+
+
+load_plugins()
 
 
 def rmtree(d):
@@ -128,6 +142,7 @@ def edit_config(request):
         if plugin not in config.enabled_plugins:
             config.enabled_plugins.append(plugin)
             write_config()
+            load_plugins()
     return render_template("html/edit-config.html")
 
 
@@ -139,6 +154,8 @@ def reorder_plugins(request):
         config.disabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["disabled_ordered"].split("&")] if kv[0] == "plugin"]
 
         write_config()
+
+        load_plugins()
 
     return redirect(f"http://{DOMAIN}/config")
 
@@ -161,6 +178,8 @@ def remove(request):
 
     # write this config
     write_config()
+
+    load_plugins()
 
     # redirect back to the config page
     return redirect(f"http://{DOMAIN}/config")
