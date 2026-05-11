@@ -64,6 +64,19 @@ for plugin in enabled_plugins:
     modules.append(__import__(f"lib/plugins/{plugin}"))
 
 
+def rmtree(d):
+    if not d:
+        raise ValueError
+
+    for name, type, *_ in os.ilistdir(d):
+        path = d + "/" + name
+        if type & 0x4000:  # dir
+            rmtree(path)
+        else:  # file
+            os.unlink(path)
+    os.rmdir(d)
+
+
 def write_config():
     lines = []
     with open("config.py", "r") as infile:
@@ -127,6 +140,29 @@ def reorder_plugins(request):
 
         write_config()
 
+    return redirect(f"http://{DOMAIN}/config")
+
+
+@server.route("/remove")
+def remove(request):
+
+    # parse out the plugin name and create the path to remove
+    plugin_name = request.query["plugin"]
+    directory = f"lib/plugins/{plugin_name}/"
+
+    # remove the plugin directory
+    rmtree(directory)
+
+    # remove the entries from the enabled/disaabled lists
+    if plugin_name in config.enabled_plugins:
+        config.enabled_plugins.remove(plugin_name)
+    if plugin_name in config.disabled_plugins:
+        config.disabled_plugins.remove(plugin_name)
+
+    # write this config
+    write_config()
+
+    # redirect back to the config page
     return redirect(f"http://{DOMAIN}/config")
 
 

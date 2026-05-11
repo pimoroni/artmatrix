@@ -21,22 +21,28 @@
     .then((response) => response.json())
     .then((data) => {
         Object.keys(data).forEach(key => {
-            console.log(`${key}: ${data[key]}`);
             data[key].forEach(plugin => {
+
+                var hyperlink = document.createElement("a");
+                hyperlink.href = `/remove?plugin=${plugin}`;
+                hyperlink.text = "Remove";
+
                 if (plugin) {
                     if (key == "enabled"){
-                    var item = document.createElement("li");
-                    var list = document.getElementById("enabled_plugins");
-                    item.id = `plugin_${plugin}`;
-                    item.textContent = `${plugin}`;
-                    item.className = "ui-state-highlight ui-sortable-handle";
-                    list.appendChild(item);
-                } else if (key == "disabled") {
-                    var item = document.createElement("li");
-                    var list = document.getElementById("disabled_plugins");
-                    item.id = `plugin_${plugin}`;
-                    item.textContent = `${plugin}`;
-                    list.appendChild(item);
+                        var item = document.createElement("li");
+                        var list = document.getElementById("enabled_plugins");
+                        item.id = `plugin_${plugin}`;
+                        item.textContent = `${plugin}`;
+                        item.className = "ui-sortable-handle";
+                        list.appendChild(item);
+                        item.appendChild(hyperlink);
+                    } else if (key == "disabled") {
+                        var item = document.createElement("li");
+                        var list = document.getElementById("disabled_plugins");
+                        item.id = `plugin_${plugin}`;
+                        item.textContent = `${plugin}`;
+                        list.appendChild(item);
+                        item.appendChild(hyperlink);
                     }
                 }
             });
@@ -61,6 +67,15 @@
 
 <link rel="stylesheet" href="https://code.jquery.com/ui/1.14.2/themes/base/jquery-ui.css">
 <style>
+li {
+	border: 0px solid #eeeeee;
+    border-bottom: solid 4px rgba(0, 0, 0, .2);
+	background: #1cb5ca;
+	color: #eeeeee;
+    cursor: pointer;
+    border-radius: 0.5rem;
+    font-weight: bold;
+}
 #enabled_plugins, #disabled_plugins {
 border: 1px solid #eee;
 width: 142px;
