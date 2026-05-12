@@ -128,11 +128,11 @@ def catchall(request):
 def wrong_host_redirect(_request):
     # if the client requested a resource at the wrong host then present
     # a meta redirect so that the captive portal browser can be sent to the correct location
-    return f"<!DOCTYPE html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://{DOMAIN}/config'\" /></head>"
+    return f"<!DOCTYPE html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://{DOMAIN}/'\" /></head>"
 
 
-@server.route("/config", methods=["GET", "POST"])
-def edit_config(request):
+@server.route("/", methods=["GET", "POST"])
+def settings(request):
     if request.method == "POST":
         plugin = request.form["selected-plugin"]
         install_url = f"github:pimoroni/monkey-banana/{plugin}"
@@ -157,7 +157,7 @@ def reorder_plugins(request):
 
         load_plugins()
 
-    return redirect(f"http://{DOMAIN}/config")
+    return redirect(f"http://{DOMAIN}/")
 
 
 @server.route("/remove")
@@ -182,7 +182,7 @@ def remove(request):
     load_plugins()
 
     # redirect back to the config page
-    return redirect(f"http://{DOMAIN}/config")
+    return redirect(f"http://{DOMAIN}/")
 
 
 @server.route("/plugins.json")
