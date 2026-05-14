@@ -23,9 +23,13 @@
         Object.keys(data).forEach(key => {
             data[key].forEach(plugin => {
 
-                var hyperlink = document.createElement("a");
-                hyperlink.href = `/remove?plugin=${plugin}`;
-                hyperlink.text = "Remove";
+                var remove_link = document.createElement("a");
+                remove_link.href = `/remove?plugin=${plugin}`;
+                remove_link.text = "🗙";
+
+                config_link = document.createElement("a");
+                config_link.href = `/config?plugin=${plugin}`;
+                config_link.text = "⚙";
 
                 if (plugin) {
                     if (key == "enabled"){
@@ -35,14 +39,16 @@
                         item.textContent = `${plugin}`;
                         item.className = "ui-sortable-handle";
                         list.appendChild(item);
-                        item.appendChild(hyperlink);
+                        item.appendChild(remove_link);
+                        item.appendChild(config_link);
                     } else if (key == "disabled") {
                         var item = document.createElement("li");
                         var list = document.getElementById("disabled_plugins");
                         item.id = `plugin_${plugin}`;
                         item.textContent = `${plugin}`;
                         list.appendChild(item);
-                        item.appendChild(hyperlink);
+                        item.appendChild(remove_link);
+                        item.appendChild(config_link);
                     }
                 }
             });

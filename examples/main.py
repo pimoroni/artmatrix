@@ -6,6 +6,7 @@ import mip
 import requests
 import json
 import os
+import sys
 
 ###
 # Provisioning
@@ -69,7 +70,7 @@ def load_plugins():
     NUM_PLUGINS = len(enabled_plugins)
     modules = []
     for plugin in enabled_plugins:
-        modules.append(__import__(f"lib/plugins/{plugin}"))
+        modules.append((f"{plugin}", __import__(f"lib/plugins/{plugin}")))
 
     # reset the current to zero, start from the beginning.
     current_plugin = 0
@@ -132,7 +133,7 @@ def wrong_host_redirect(_request):
 
 
 @server.route("/", methods=["GET", "POST"])
-def settings(request):
+def device_settings(request):
     if request.method == "POST":
         plugin = request.form["selected-plugin"]
         install_url = f"github:pimoroni/monkey-banana/{plugin}"
@@ -143,12 +144,11 @@ def settings(request):
             config.enabled_plugins.append(plugin)
             write_config()
             load_plugins()
-    return render_template("html/edit-config.html")
+    return render_template("html/settings.html")
 
 
 @server.route("/reorder", methods=["POST"])
 def reorder_plugins(request):
-
     if request.method == "POST":
         config.enabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["enabled_ordered"].split("&")] if kv[0] == "plugin"]
         config.disabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["disabled_ordered"].split("&")] if kv[0] == "plugin"]
@@ -161,7 +161,7 @@ def reorder_plugins(request):
 
 
 @server.route("/remove")
-def remove(request):
+def remove_plugin(request):
 
     # parse out the plugin name and create the path to remove
     plugin_name = request.query["plugin"]
@@ -183,6 +183,24 @@ def remove(request):
 
     # redirect back to the config page
     return redirect(f"http://{DOMAIN}/")
+
+
+@server.route("/config", methods=["GET", "POST"])
+def configure_plugin(request):
+
+    plugin = request.query["plugin"]
+    if request.method == "POST":
+        with open(f"lib/plugins/{plugin}/config.json", "w") as file:
+            json.dump(request.form, file)
+
+        del sys.modules[f"lib/plugins/{plugin}"]
+        index = [modules.index(m) for m in modules if m[0] == plugin][0]
+        modules[index] = (f"{plugin}", __import__(f"lib/plugins/{plugin}"))
+
+        return redirect(f"http://{DOMAIN}/")
+
+    p = __import__(f"lib/plugins/{plugin}")
+    return p.config
 
 
 @server.route("/plugins.json")
@@ -209,7 +227,7 @@ async def draw():
             current_plugin %= NUM_PLUGINS
             last_changed = time.time()
 
-        modules[current_plugin].update()
+        modules[current_plugin][1].update()
         display.update()
 
         await asyncio.sleep(0.01)
