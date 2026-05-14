@@ -189,6 +189,8 @@ def remove_plugin(request):
 def configure_plugin(request):
 
     plugin = request.query["plugin"]
+    p = __import__(f"lib/plugins/{plugin}")
+
     if request.method == "POST":
         with open(f"lib/plugins/{plugin}/config.json", "w") as file:
             json.dump(request.form, file)
@@ -197,10 +199,10 @@ def configure_plugin(request):
         index = [modules.index(m) for m in modules if m[0] == plugin][0]
         modules[index] = (f"{plugin}", __import__(f"lib/plugins/{plugin}"))
 
+    try:
+        return p.config
+    except AttributeError:
         return redirect(f"http://{DOMAIN}/")
-
-    p = __import__(f"lib/plugins/{plugin}")
-    return p.config
 
 
 @server.route("/plugins.json")
