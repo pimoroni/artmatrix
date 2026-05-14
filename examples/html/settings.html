@@ -39,16 +39,16 @@
                         item.textContent = `${plugin}`;
                         item.className = "ui-sortable-handle";
                         list.appendChild(item);
-                        item.appendChild(remove_link);
                         item.appendChild(config_link);
+                        item.appendChild(remove_link);
                     } else if (key == "disabled") {
                         var item = document.createElement("li");
                         var list = document.getElementById("disabled_plugins");
                         item.id = `plugin_${plugin}`;
                         item.textContent = `${plugin}`;
                         list.appendChild(item);
-                        item.appendChild(remove_link);
                         item.appendChild(config_link);
+                        item.appendChild(remove_link);
                     }
                 }
             });
@@ -84,7 +84,7 @@ li {
 }
 #enabled_plugins, #disabled_plugins {
 border: 1px solid #eee;
-width: 142px;
+width: 250px;
 min-height: 20px;
 list-style-type: none;
 margin: 0;
@@ -96,7 +96,7 @@ margin-right: 10px;
 margin: 0 5px 5px 5px;
 padding: 5px;
 font-size: 1.2em;
-width: 120px;
+width: 230px;
 }
 </style>
 <script src="https://code.jquery.com/jquery-3.7.1.js"></script>
