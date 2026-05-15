@@ -124,8 +124,8 @@ $( "#enabled_plugins, #disabled_plugins" ).sortable({
 <script>
     function sortLists() {
         $( "#enabled_plugins" ).sortable( "refreshPositions" );
-        var enabled_sorted = $( "#enabled_plugins" ).sortable( "serialize", {key: "plugin"} );
-        var disabled_sorted = $( "#disabled_plugins" ).sortable( "serialize", {key: "plugin"} );
+        var enabled_sorted = $( "#enabled_plugins" ).sortable( "toArray" );
+        var disabled_sorted = $( "#disabled_plugins" ).sortable( "toArray" );
         enabled_input = document.getElementById("enabled_ordered");
         enabled_input.value = enabled_sorted;
         disabled_input = document.getElementById("disabled_ordered");

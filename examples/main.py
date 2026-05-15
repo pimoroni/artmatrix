@@ -32,7 +32,7 @@ INDEX_URL = "https://raw.githubusercontent.com/pimoroni/monkey-banana/refs/heads
 DELAY = config.delay
 last_changed = time.time()
 current_plugin = 0
-enabled_plugins = {}
+enabled_plugins = []
 NUM_PLUGINS = 0
 modules = []
 
@@ -58,14 +58,7 @@ DOMAIN = wifi.ipv4()
 def load_plugins():
     global enabled_plugins, NUM_PLUGINS, modules, current_plugin
 
-    if config.enabled_plugins:
-        enabled_plugins = config.enabled_plugins
-    else:
-        try:
-            # get a list of all the plugins current_pluginly installed
-            enabled_plugins = [p for p in os.listdir("lib/plugins")]
-        except OSError:
-            pass   # We want to handle this case of no plugins being installed.
+    enabled_plugins = config.enabled_plugins
 
     NUM_PLUGINS = len(enabled_plugins)
     modules = []
@@ -150,11 +143,11 @@ def device_settings(request):
 @server.route("/reorder", methods=["POST"])
 def reorder_plugins(request):
     if request.method == "POST":
-        config.enabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["enabled_ordered"].split("&")] if kv[0] == "plugin"]
-        config.disabled_plugins = [kv[1] for kv in [kv.split("=") for kv in request.form["disabled_ordered"].split("&")] if kv[0] == "plugin"]
+
+        config.enabled_plugins = [k.lstrip("plugin_") for k in request.form["enabled_ordered"].split(",") if k]
+        config.disabled_plugins = [k.lstrip("plugin_") for k in request.form["disabled_ordered"].split(",") if k]
 
         write_config()
-
         load_plugins()
 
     return redirect(f"http://{DOMAIN}/")
@@ -219,17 +212,18 @@ def networks(request):
     return json.dumps(j), 200, "application/json"
 
 
-# temp
-# drawing a bouncy squircle to see display + web server
 async def draw():
     global last_changed, current_plugin
     while True:
-        if (time.time() - last_changed) > DELAY:
-            current_plugin += 1
-            current_plugin %= NUM_PLUGINS
-            last_changed = time.time()
+        if modules:
 
-        modules[current_plugin][1].update()
+            modules[current_plugin][1].update()
+
+            if (time.time() - last_changed) > DELAY:
+                current_plugin += 1
+                current_plugin %= NUM_PLUGINS
+                last_changed = time.time()
+
         display.update()
 
         await asyncio.sleep(0.01)
