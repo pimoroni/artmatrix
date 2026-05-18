@@ -210,10 +210,11 @@ def draw_wifi_icon(col):
 async def draw():
     global last_changed, current_plugin
 
-    screen.pen = color.black
-    screen.clear()
-
     while True:
+
+        screen.pen = color.black
+        screen.clear()
+
         if modules:
 
             modules[current_plugin][1].update()
