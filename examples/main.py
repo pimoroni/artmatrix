@@ -29,36 +29,21 @@ if needs_provisioning:
 INDEX_URL = "https://raw.githubusercontent.com/pimoroni/monkey-banana/refs/heads/main/index.json"
 
 # delay between plugins
-DELAY = config.delay
+delay = int(config.delay)
 last_changed = time.time()
 current_plugin = 0
 enabled_plugins = []
 NUM_PLUGINS = 0
 modules = []
 
-# Wifi connect
-# Will probably change at some point
-screen.pen = color.red
-screen.clear()
-display.update()
-print("Connecting...")
-wifi.connect()
-while not wifi.is_connected():
-    wifi.tick()
-screen.pen = color.green
-screen.clear()
-display.update()
-
-DOMAIN = wifi.ipv4()
-
-# list of installed plugins
-# and import the modules, sorted in a list
+cx, cy = screen.width / 2, screen.height / 2
 
 
 def load_plugins():
-    global enabled_plugins, NUM_PLUGINS, modules, current_plugin
+    global enabled_plugins, NUM_PLUGINS, modules, current_plugin, delay
 
     enabled_plugins = config.enabled_plugins
+    delay = int(config.delay)
 
     NUM_PLUGINS = len(enabled_plugins)
     modules = []
@@ -146,6 +131,7 @@ def reorder_plugins(request):
 
         config.enabled_plugins = [k.lstrip("plugin_") for k in request.form["enabled_ordered"].split(",") if k]
         config.disabled_plugins = [k.lstrip("plugin_") for k in request.form["disabled_ordered"].split(",") if k]
+        config.delay = request.form["delay_time"]
 
         write_config()
         load_plugins()
@@ -212,22 +198,54 @@ def networks(request):
     return json.dumps(j), 200, "application/json"
 
 
+def draw_wifi_icon(col):
+    screen.pen = col
+    wifi_shape = shape.pie(cx, cy + 30, 50, -45, 45)
+    wifi_outline = shape.pie(cx, cy + 30, 50, -45, 45).stroke(4)
+    screen.shape(wifi_shape)
+    screen.pen = color.white
+    screen.shape(wifi_outline)
+
+
 async def draw():
     global last_changed, current_plugin
+
+    screen.pen = color.black
+    screen.clear()
+
     while True:
         if modules:
 
             modules[current_plugin][1].update()
 
-            if (time.time() - last_changed) > DELAY:
+            if (time.time() - last_changed) > delay:
                 current_plugin += 1
                 current_plugin %= NUM_PLUGINS
                 last_changed = time.time()
+        else:
+            screen.pen = color.white
+            screen.text("No Plugins", 0, 0)
 
         display.update()
 
         await asyncio.sleep(0.01)
 
+
+screen.pen = color.black
+screen.clear()
+draw_wifi_icon(color.red)
+display.update()
+
+wifi.connect()
+while not wifi.is_connected():
+    wifi.tick()
+
+screen.pen = color.black
+screen.clear()
+draw_wifi_icon(color.green)
+display.update()
+
+DOMAIN = wifi.ipv4()
 
 asyncio.create_task(draw())
 while True:

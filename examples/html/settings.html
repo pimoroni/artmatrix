@@ -118,6 +118,10 @@ $( "#enabled_plugins, #disabled_plugins" ).sortable({
 <form id="plugin-reorder" action="/reorder" method="post">
     <input type="hidden" id="enabled_ordered" name="enabled_ordered">
     <input type="hidden" id="disabled_ordered" name="disabled_ordered">
+    <br>
+    <br>
+    <h1>Time between plugins (seconds):</h1>
+    <input type="number" id="delay_time" name="delay_time" min="5" value={{config.delay}}>
     <button type="submit" onClick="sortLists()" form="plugin-reorder">Apply</button>
 </form>
 
