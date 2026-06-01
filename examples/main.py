@@ -1,5 +1,4 @@
-from lib.phew import server, redirect, serve_file, render_template
-import wifi
+from phew import server, redirect, serve_file, render_template
 import time
 import asyncio
 import mip
@@ -24,6 +23,8 @@ except Exception:
 if needs_provisioning:
     import provisioning    # noqa F401
     # control never returns to here, provisioning takes over completely
+
+import wifi     # noqa E402
 
 # Location of plugin index
 INDEX_URL = "https://raw.githubusercontent.com/pimoroni/monkey-banana/refs/heads/main/index.json"
