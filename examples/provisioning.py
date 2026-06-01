@@ -2,7 +2,7 @@ import os
 import json
 import time
 import machine
-from lib.phew import logging, server, redirect, serve_file, render_template, access_point
+from phew import logging, server, redirect, serve_file, render_template, access_point
 from machine import unique_id
 import qrcode
 from binascii import hexlify
@@ -27,7 +27,7 @@ logging.info("  -", ap.ifconfig()[0])
 
 # dns server to catch all dns requests
 logging.info("> starting dns server...")
-from lib.phew import dns   # noqa E402
+from phew import dns   # noqa E402
 dns.run_catchall(ap.ifconfig()[0])
 
 logging.info("> creating web server...")
