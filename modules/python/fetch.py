@@ -3,6 +3,8 @@ import tls
 import time
 import socket
 import json
+from errno import EINPROGRESS
+from collections import deque
 
 
 class HTTPException(Exception):
@@ -24,17 +26,17 @@ class AsyncFetch:
     def __init__(self, host, port=None, use_tls=True, debug=False):
         self._debug = debug
 
-        self._fetch = None    # hold the pending fetch
-        self._sock = None     # hold the open socket
+        self._fetch = None  # hold the pending fetch
+        self._sock = None  # hold the open socket
 
         self._last_update = None  # keep track of the last updated time
 
-        self._buffer = None   # buffer for BytesIO and StringIO
+        self._buffer = None  # buffer for BytesIO and StringIO
         self._buffer_len = 0  # amount of data actually in our buffer
 
-        self._interval = 0    # fetch interval in seconds
+        self._interval = 0  # fetch interval in seconds
         self._path = None
-        self._file = None     # Target file, or none to fetch to a stream
+        self._file = None  # Target file, or none to fetch to a stream
 
         self._on_complete = None
         self._on_error = None
@@ -44,6 +46,7 @@ class AsyncFetch:
 
         self._headers = {}
         self._response_headers = {}
+        self._status_code = None
 
         self._use_tls = use_tls
 
@@ -86,8 +89,8 @@ class AsyncFetch:
             return self.stream
 
     def _http_fetch(self):
+        self._status_code = None
         self._response_headers = {}
-        status_code = 200
 
         self._headers["Connection"] = "keep-alive"
 
@@ -204,6 +207,8 @@ class AsyncFetch:
         if self._path is not None:
             if self._last_update is None or (self._interval > 0 and self.duration > int(self._interval * 1000)):
                 # Don't overwrite an existing fetch operation if the interval comes up...
+                if self._fetch is None and self._debug:
+                    print("Fetch started")
                 self._fetch = self._fetch or self._fetch_to_stream()
 
             if self._fetch:
@@ -212,18 +217,20 @@ class AsyncFetch:
                     self._status = AsyncFetch.FETCHING
 
                 except StopIteration:
+                    if self._debug:
+                        print("Fetch done")
                     self._last_update = time.ticks_ms()
                     self._fetch = None
 
-                    if self._status_code != 200:
-                        self._status = AsyncFetch.ERROR
-                        if not callable(self._on_error) or not self._on_error(self):
-                            raise HTTPException(self)
-
-                    else:
+                    if self._status_code == 200:
                         self._status = AsyncFetch.DONE
                         if callable(self._on_complete):
                             self._on_complete(self)
+
+                    else:
+                        self._status = AsyncFetch.ERROR
+                        if not callable(self._on_error) or not self._on_error(self):
+                            raise HTTPException(self)
 
         return self._status
 
@@ -236,6 +243,14 @@ class AsyncFetch:
         return self._status
 
     @property
+    def source(self):
+        return self._path
+
+    @property
+    def destination(self):
+        return self._file
+
+    @property
     def http_status(self):
         return self._status_code
 
@@ -246,7 +261,7 @@ class AsyncFetch:
     @property
     def stream(self):
         # Return a FileIO for a saved file or a StringIO containing the buffer value
-        return open(self._file, "r") if self._file else io.StringIO(memoryview(self._buffer.getvalue())[:self._buffer_len], encoding="UTF-8")
+        return open(self._file, "r") if self._file else io.StringIO(memoryview(self._buffer.getvalue())[: self._buffer_len], encoding="UTF-8")
 
     def to_json(self):
         return json.load(self.stream)
@@ -264,8 +279,10 @@ class AsyncFetch:
 
 
 if __name__ == "__main__":
+    import random
 
     api = AsyncFetch("postman-echo.com", 443, use_tls=True, debug=True)
+    # api = AsyncFetch("pimoroni.github.io", 443, use_tls=True, debug=True)
 
     # Run update once before we have a valid fetch
     assert api.update() == AsyncFetch.IDLE
@@ -287,16 +304,16 @@ if __name__ == "__main__":
 
         if fetch.http_status == 302:
             if "location" in fetch.http_response_headers:
-                print(f"302 redirect to: {fetch.http_response_headers["location"]}")
+                print(f"302 redirect to: {fetch.http_response_headers['location']}")
 
         return False  # We can't handle this, raise
 
     # Start a fetch
     api.fetch("/")
-#     api.fetch("/get", interval=0, method="GET")
-#     api.fetch("/post", interval=0, method="POST", data='{"test": 1}'.encode("UTF-8"), headers={"content-type": "application/json"})
-#     api.fetch("/post", interval=0, method="POST", data='test=1&another=2'.encode("UTF-8"), headers={"content-type": "application/x-www-form-urlencoded"})
-#     api.fetch("/feed2image/jokeapi-5999.json")
+    # api.fetch("/get", interval=0, method="GET")
+    # api.fetch("/post", interval=0, method="POST", data='{"test": 1}'.encode("UTF-8"), headers={"content-type": "application/json"})
+    # api.fetch("/post", interval=0, method="POST", data='test=1&another=2'.encode("UTF-8"), headers={"content-type": "application/x-www-form-urlencoded"})
+    # api.fetch("/feed2image/jokeapi-5999.json")
 
     while True:
         t_start = time.ticks_ms()
