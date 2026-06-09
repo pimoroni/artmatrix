@@ -55,9 +55,6 @@ def load_plugins():
     current_plugin = 0
 
 
-load_plugins()
-
-
 def rmtree(d):
     if not d:
         raise ValueError
@@ -241,6 +238,8 @@ display.update()
 wifi.connect()
 while not wifi.is_connected():
     wifi.tick()
+
+load_plugins()
 
 screen.pen = color.black
 screen.clear()
