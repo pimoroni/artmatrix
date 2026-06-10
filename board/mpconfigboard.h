@@ -12,6 +12,9 @@
 // Enable WiFi & PPP
 #define MICROPY_PY_NETWORK                      (1)
 
+// Raise the 5 socket limit
+#define MEMP_NUM_TCP_PCB                        (50)
+
 // CYW43 driver configuration.
 #define CYW43_USE_SPI                           (1)
 #define CYW43_LWIP                              (1)
