@@ -6,10 +6,13 @@ import requests
 import json
 import os
 import sys
+import gc
 
 ###
 # Provisioning
 ###
+
+loop = asyncio.get_event_loop()
 
 needs_provisioning = False
 
@@ -173,6 +176,7 @@ def configure_plugin(request):
             json.dump(request.form, file)
 
         del sys.modules[f"lib/plugins/{plugin}"]
+        gc.collect()
         index = [modules.index(m) for m in modules if m[0] == plugin][0]
         modules[index] = (f"{plugin}", __import__(f"lib/plugins/{plugin}"))
 
@@ -227,7 +231,7 @@ async def draw():
 
         display.update()
 
-        await asyncio.sleep(0.01)
+        await asyncio.sleep_ms(10)
 
 
 screen.pen = color.black
@@ -248,6 +252,5 @@ display.update()
 
 DOMAIN = wifi.ipv4()
 
-asyncio.create_task(draw())
-while True:
-    server.run(host="0.0.0.0", port=80)
+loop.create_task(draw())
+server.run(host="0.0.0.0", port=80)
