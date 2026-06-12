@@ -3,9 +3,7 @@ import json
 import time
 import machine
 from phew import logging, server, redirect, serve_file, render_template, access_point
-from machine import unique_id
 import qrcode
-from binascii import hexlify
 import network
 
 wlan = None
@@ -14,18 +12,16 @@ screen.font = rom_font.nope
 
 code = qrcode.QRCode()
 
-DOMAIN = "pico.wireless"
+DOMAIN = "artmatrix.wireless"
 ssid = "Art Matrix Setup"
-password = hexlify(unique_id()).decode("utf-8")[:8]
-pw_length, _ = screen.measure_text(password)
 ssid_length, _ = screen.measure_text(ssid)
 
 # create the qr payload
-qr_payload = f"WIFI:T:WPA;S:{ssid};P:{password};;"
+qr_payload = f"WIFI:T:Open;S:{ssid};;"
 
 # put board into access point mode
 logging.info("> going into access point mode")
-ap = access_point("Art Matrix Setup", password=password)
+ap = access_point("Art Matrix Setup", password="")
 logging.info("  -", ap.ifconfig()[0])
 
 # dns server to catch all dns requests
@@ -101,7 +97,10 @@ def draw_qr_code(ox, oy, size, code):
 screen.pen = color.rgb(0, 0, 0)
 screen.clear()
 code.set_text(qr_payload)
-draw_qr_code(0, 4, 80, code)
+draw_qr_code(0, 8, 100, code)
+screen.pen = color.white
+screen.text("Connect to:", 5, screen.height - 30)
+screen.text(f"{ssid}", 5, screen.height - 17)
 display.update()
 
 
