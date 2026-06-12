@@ -6,6 +6,9 @@ from phew import logging, server, redirect, serve_file, render_template, access_
 from machine import unique_id
 import qrcode
 from binascii import hexlify
+import network
+
+wlan = None
 
 screen.font = rom_font.nope
 
@@ -122,13 +125,34 @@ def provision_welcome(request):
     return render_template("html/provision-wifi.html")
 
 
+@server.route("/test-network", methods=["POST"])
+def test_network(request):
+    global wlan
+    if wlan is None or wlan.status() not in (network.STAT_CONNECTING, network.STAT_GOT_IP):
+        print("WLAN STEP ONE")
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        wlan.connect(request.form["wifi_ssid"], request.form["wifi_password"])
+    return "OK"
+
+
+@server.route("/wifi_test_done", methods=["GET"])
+def provisioning_done(request):
+    if wlan and wlan.status() == network.STAT_GOT_IP:
+        return "OK"
+    elif wlan.status() == network.STAT_CONNECTING:
+        return "CONNECTING"
+    else:
+        return "FAILED"
+
+
 @server.route("/networks.json")
 def networks(_request):
     networks = []
-    for network in ap.scan():
-        network = network[0].decode("ascii").strip()
-        if network != "":
-            networks.append(network)
+    for net in ap.scan():
+        net = net[0].decode("ascii").strip()
+        if net != "":
+            networks.append(net)
     networks = list(set(networks))   # remove duplicates
     return json.dumps(networks), 200, "application/json"
 

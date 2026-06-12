@@ -197,6 +197,7 @@ def networks(request):
     # get the index of available plugins and return it
     r = requests.get(INDEX_URL)
     j = r.json()
+    r.close()
     return json.dumps(j), 200, "application/json"
 
 
@@ -232,7 +233,6 @@ async def draw():
         display.update()
 
         await asyncio.sleep_ms(10)
-
 
 screen.pen = color.black
 screen.clear()

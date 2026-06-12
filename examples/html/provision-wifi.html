@@ -80,4 +80,58 @@
   loadNetworks()  
 </script>
 
+<script type="text/javascript">
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const setup_form = () => {
+            document.getElementById("main").onsubmit = async (event) => {
+                const data = await new FormData(event.target)
+                console.log(...data)
+                fetch("/test-network", {
+                    method: "POST",
+                    body: data
+                })
+                .then((response) => {return response.text()})
+                .then(async (text) => {
+
+                    if (text == "OK") {
+                        console.log("OK poll for connection...")
+                    }
+
+                    let complete = false
+                    let success = null
+
+                    do {
+                        await sleep(1000)
+
+                        await fetch("/wifi_test_done")
+                        .then((response) => {return response.text()})
+                        .then((text) => {
+                            if (text == "OK" || text == "FAILED") {
+                                console.log("Testing finished")
+                                complete = true
+                                if(text == "OK") {
+                                    console.log("CONNECTION OKAY SUBMITTING FORM")
+                                    event.target.onsubmit = null
+                                    event.target.submit()
+                                } else {
+                                    // TODO: Display a friendlier user message here
+                                    alert("Connection failed")
+                                }
+                            }
+                            console.log("Testing WiFi connection")
+                        })
+                        
+                    } while (!complete)
+                })
+
+                event.preventDefault()
+            };
+        }
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", (event) => {setup_form()})
+        } else {
+            setup_form()
+        }
+    </script>
+
 {{render_template("html/footer.html")}}
