@@ -197,7 +197,6 @@ def networks(request):
     # get the index of available plugins and return it
     r = requests.get(INDEX_URL)
     j = r.json()
-    r.close()
     return json.dumps(j), 200, "application/json"
 
 
@@ -215,7 +214,7 @@ async def draw():
 
     while True:
 
-        screen.pen = color.black
+        screen.pen = color.rgb(0, 0, 0)
         screen.clear()
 
         if modules:
@@ -227,8 +226,24 @@ async def draw():
                 current_plugin %= NUM_PLUGINS
                 last_changed = time.time()
         else:
+            y = 5
             screen.pen = color.white
-            screen.text("No Plugins", 0, 0)
+            screen.font = rom_font.nope
+            screen.text("No Plugins :(", 5, y)
+            y += 45
+            screen.text("Go to", 5, y)
+            y += 15
+            screen.pen = color.blue
+            screen.text(f"{config.wifi_hostname}.local", 5, y)
+            y += 15
+            screen.pen = color.white
+            screen.text("Or", 5, y)
+            y += 15
+            screen.pen = color.blue
+            screen.text(f"{wifi.ipv4()}", 5, y)
+            y += 15
+            screen.pen = color.white
+            screen.text("in your browser.", 5, y)
 
         display.update()
 
@@ -250,7 +265,7 @@ screen.clear()
 draw_wifi_icon(color.green)
 display.update()
 
-DOMAIN = wifi.ipv4()
+DOMAIN = f"{config.wifi_hostname}.local"
 
 loop.create_task(draw())
 server.run(host="0.0.0.0", port=80)
