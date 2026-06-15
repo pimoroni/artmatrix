@@ -130,8 +130,8 @@ def device_settings(request):
 def reorder_plugins(request):
     if request.method == "POST":
 
-        config.enabled_plugins = [k.lstrip("plugin_") for k in request.form["enabled_ordered"].split(",") if k]
-        config.disabled_plugins = [k.lstrip("plugin_") for k in request.form["disabled_ordered"].split(",") if k]
+        config.enabled_plugins = [k[7:] for k in request.form["enabled_ordered"].split(",") if k]
+        config.disabled_plugins = [k[7:] for k in request.form["disabled_ordered"].split(",") if k]
         config.delay = request.form["delay_time"]
 
         write_config()
