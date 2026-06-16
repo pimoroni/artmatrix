@@ -12,7 +12,7 @@
       for(let plugin of data.plugins) {
         var list = document.getElementById("selected-plugin");
         var item = document.createElement("option");
-        item.textContent = plugin;
+        item.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
         list.appendChild(item);
       }
     })
@@ -36,7 +36,7 @@
                         var item = document.createElement("li");
                         var list = document.getElementById("enabled_plugins");
                         item.id = `plugin_${plugin}`;
-                        item.textContent = `${plugin}`;
+                        item.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
                         item.className = "ui-sortable-handle";
                         list.appendChild(item);
                         item.appendChild(config_link);
@@ -45,7 +45,8 @@
                         var item = document.createElement("li");
                         var list = document.getElementById("disabled_plugins");
                         item.id = `plugin_${plugin}`;
-                        item.textContent = `${plugin}`;
+                        item.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
+
                         list.appendChild(item);
                         item.appendChild(config_link);
                         item.appendChild(remove_link);
