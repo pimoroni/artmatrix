@@ -12,6 +12,10 @@ import gc
 # Provisioning
 ###
 
+# Disable automatic garbage collection,
+# we want to have more control over collection to prevent stuttering
+gc.disable()
+
 loop = asyncio.get_event_loop()
 
 needs_provisioning = False
@@ -34,7 +38,7 @@ INDEX_URL = "https://raw.githubusercontent.com/pimoroni/monkey-banana/refs/heads
 
 # delay between plugins
 delay = int(config.delay)
-last_changed = time.time()
+last_changed = None
 current_plugin = 0
 enabled_plugins = []
 NUM_PLUGINS = 0
@@ -52,7 +56,7 @@ def load_plugins():
     NUM_PLUGINS = len(enabled_plugins)
     modules = []
     for plugin in enabled_plugins:
-        modules.append((f"{plugin}", __import__(f"lib/plugins/{plugin}")))
+        modules.append((f"{plugin}", __import__(f"/lib/plugins/{plugin}")))
 
     # reset the current to zero, start from the beginning.
     current_plugin = 0
@@ -212,16 +216,23 @@ def draw_wifi_icon(col):
 async def draw():
     global last_changed, current_plugin
 
-    while True:
+    last_changed = time.time()
 
-        screen.pen = color.rgb(0, 0, 0)
-        screen.clear()
+    screen.pen = color.rgb(0, 0, 0)
+    screen.clear()
+
+    while True:
 
         if modules:
 
             modules[current_plugin][1].update()
 
-            if (time.time() - last_changed) > delay:
+            if (time.time() - last_changed) > delay and len(modules) > 1:
+                gc.collect()
+                print(f"MEM FREE:{gc.mem_free()}")
+                screen.pen = color.rgb(0, 0, 0)
+                screen.clear()
+
                 current_plugin += 1
                 current_plugin %= NUM_PLUGINS
                 last_changed = time.time()
