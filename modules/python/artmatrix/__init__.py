@@ -29,6 +29,7 @@ builtins.screen = image(128, 128, memoryview(display))
 
 builtins.sensor = machine.ADC(board.SENSOR_IN)
 
+
 # LED control
 class LEDS:
     def __init__(self):
@@ -60,12 +61,10 @@ __import__(".frozen/artmatrix/text")
 __import__(".frozen/artmatrix/sprite")
 __import__(".frozen/artmatrix/filesystem")
 __import__(".frozen/artmatrix/memory")
-
-screen.antialias = image.X4
-screen.font = rom_font.more
-screen.pen = color.black
-screen.clear()
-screen.pen = color.white
-screen.text("Ready!", 28, 50)
-display.update()
-
+# screen.antialias = image.X4
+# screen.font = rom_font.more
+# screen.pen = color.black
+# screen.clear()
+# screen.pen = color.white
+# screen.text("Ready!", 28, 50)
+# display.update()
