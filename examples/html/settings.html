@@ -12,7 +12,11 @@
       for(let plugin of data.plugins) {
         var list = document.getElementById("selected-plugin");
         var item = document.createElement("option");
-        item.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
+        item.textContent = plugin
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+        item.value = plugin
         list.appendChild(item);
       }
     })
