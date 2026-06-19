@@ -236,6 +236,7 @@ async def draw():
                 screen.pen = color.rgb(0, 0, 0)
                 screen.clear()
                 screen.pen = color.white
+                screen.font = rom_font.sins
                 screen.text("Loading...", vec2(0, 0))
 
                 current_plugin += 1
