@@ -9,6 +9,8 @@ import sys
 import gc
 import ntptime
 
+screen.antialias = image.X4
+
 ###
 # Provisioning
 ###
@@ -275,7 +277,6 @@ while not wifi.is_connected():
 
 ntptime.settime()
 load_plugins()
-print(time.localtime())
 
 screen.pen = color.black
 screen.clear()
