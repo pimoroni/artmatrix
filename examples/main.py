@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import gc
+import ntptime
 
 ###
 # Provisioning
@@ -232,6 +233,8 @@ async def draw():
                 print(f"MEM FREE:{gc.mem_free()}")
                 screen.pen = color.rgb(0, 0, 0)
                 screen.clear()
+                screen.pen = color.white
+                screen.text("Loading...", vec2(0, 0))
 
                 current_plugin += 1
                 current_plugin %= NUM_PLUGINS
@@ -256,7 +259,7 @@ async def draw():
             screen.pen = color.white
             screen.text("in your browser.", 5, y)
 
-        display.update()
+            display.update()
 
         await asyncio.sleep_ms(10)
 
@@ -269,7 +272,10 @@ wifi.connect()
 while not wifi.is_connected():
     wifi.tick()
 
+
+ntptime.settime()
 load_plugins()
+print(time.localtime())
 
 screen.pen = color.black
 screen.clear()
