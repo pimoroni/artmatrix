@@ -275,8 +275,12 @@ wifi.connect()
 while not wifi.is_connected():
     wifi.tick()
 
+# ignore OSError and continue
+try:
+    ntptime.settime()
+except OSError:
+    pass
 
-ntptime.settime()
 load_plugins()
 
 screen.pen = color.black
