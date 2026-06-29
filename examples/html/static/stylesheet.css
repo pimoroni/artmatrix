@@ -131,6 +131,7 @@ h4,
 h5,
 h6 {
   --pico-font-weight: 700;
+  text-align: center;
 }
 
 h1 {
