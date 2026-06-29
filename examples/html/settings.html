@@ -1,145 +1,134 @@
-{{render_template("html/header.html")}}
-{{render_template("html/header-mini.html")}}
+<!DOCTYPE html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="static/stylesheet.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap">
+    <title>Art Matrix Configuration</title>
+</head>
+<hr>
+<section id="installation">
+    <h3>Install Plugins:</h3>
+    <form id="plugin-select" action="/" method="post">
+        <label for="selected-plugin">Select a plugin:</label>
 
-<br>
-<h1>Install Plugins:</h1>
-<br>
+        <select name="selected-plugin" id="selected-plugin">
+        </select>
+        <button type="submit" form="plugin-select">Install</button>
+    </form>
+</section>
+<hr>
+<section id="ordering">
+    <h3>Order Plugins:</h3>
+    <ul id="all_plugins">
+    </ul>
+
+</section>
+<hr>
+<section id="timing">
+    <h3>Time between plugins (seconds):</h3>
+    <form id="plugin-reorder" action="/reorder" method="post">
+        <input type="number" form="plugin-reorder" id="delay_time" name="delay_time" min="5" value={{config.delay}}>
+    </form>
+    <button type="submit" form="plugin-reorder">Apply</button>
+</section>
+<hr>
+
 <script>
-  function loadPlugins() {
-    fetch("/index.json")
-    .then((response) => response.json())
-    .then((data) => {
-      for(let plugin of data.plugins) {
-        var list = document.getElementById("selected-plugin");
-        var item = document.createElement("option");
-        item.textContent = plugin
-        .split('_')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
-        item.value = plugin
-        list.appendChild(item);
-      }
-    })
+    function loadPlugins() {
+        fetch("/index.json")
+        .then((response) => response.json())
+        .then((data) => {
+            for(let plugin of data.plugins) {
+                var list = document.getElementById("selected-plugin");
+                var item = document.createElement("option");
+                item.textContent = plugin
+                .split('_')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+                item.value = plugin;
+                list.appendChild(item);
+            }
+        });
 
-    fetch("/plugins.json")
-    .then((response) => response.json())
-    .then((data) => {
-        Object.keys(data).forEach(key => {
-            data[key].forEach(plugin => {
+        fetch("/plugins.json")
+        .then((response) => response.json())
+        .then((data) => {
+            for (const key of Object.keys(data)) {
+                for (const plugin of data[key]) {
 
-                var remove_link = document.createElement("a");
-                remove_link.href = `/remove?plugin=${plugin}`;
-                remove_link.text = "🗙";
+                    var config_link = document.createElement("button");
+                    config_link.className = "material-symbols-outlined";
+                    config_link.textContent = "settings";
+                    config_link.onclick = function() {
+                        window.location.href = `/config?plugin=${plugin}`;
+                    }
 
-                config_link = document.createElement("a");
-                config_link.href = `/config?plugin=${plugin}`;
-                config_link.text = "⚙";
+                    var move_pos_up = document.createElement("button");
+                    move_pos_up.className = "material-symbols-outlined";
+                    move_pos_up.textContent = "arrow_upward";
+                    move_pos_up.onclick = function() {
+                        window.location.href = `/position?plugin=${plugin}&action=up`;
+                    }
 
-                if (plugin) {
-                    if (key == "enabled"){
+                    var move_pos_down = document.createElement("button");
+                    move_pos_down.className = "material-symbols-outlined";
+                    move_pos_down.textContent = "arrow_downward";
+                    move_pos_down.onclick = function() {
+                        window.location.href = `/position?plugin=${plugin}&action=down`;
+                    }
+
+                    var remove_link = document.createElement("button");
+                    remove_link.className = "material-symbols-outlined";
+                    remove_link.textContent = "delete";
+                    remove_link.onclick = function() {
+                        window.location.href = `/remove?plugin=${plugin}`;
+                    }
+
+                    var enable_toggle = document.createElement("input");
+                    enable_toggle.type = "checkbox";
+                    enable_toggle.role = "switch";
+                    enable_toggle.id = `${plugin}_checkbox`;
+
+                    enable_toggle.addEventListener("click", function() {
+                        console.log(this.id);
+                        fetch(`/active?plugin=${plugin}&state=${this.checked}`, {
+                            method: 'GET'
+                        })
+                        .then(() => {
+                            document.location.reload();
+                        })
+                    });
+
+
+                    if (plugin) {
                         var item = document.createElement("li");
-                        var list = document.getElementById("enabled_plugins");
-                        item.id = `plugin_${plugin}`;
-                        item.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
-                        item.className = "ui-sortable-handle";
-                        list.appendChild(item);
-                        item.appendChild(config_link);
-                        item.appendChild(remove_link);
-                    } else if (key == "disabled") {
-                        var item = document.createElement("li");
-                        var list = document.getElementById("disabled_plugins");
-                        item.id = `plugin_${plugin}`;
-                        item.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
+                        var list = document.getElementById("all_plugins");
+                        item.id = plugin;
 
-                        list.appendChild(item);
+                        var text_span = document.createElement("span");
+                        text_span.className = "plugin-text";
+                        text_span.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
+                        item.appendChild(text_span);
+                        
+                        if (key == "enabled"){
+                            item.appendChild(move_pos_up);
+                            item.appendChild(move_pos_down);
+                            enable_toggle.checked = "checked";
+                        }
+
                         item.appendChild(config_link);
+
+                        item.appendChild(enable_toggle);
+                        item.className = key;
+                        list.appendChild(item);
+
                         item.appendChild(remove_link);
                     }
                 }
-            });
+            }
         });
-    })
-  }
-
-  loadPlugins()  
-</script>
-
-<form id="plugin-select" action="/" method="post">
-    <label for="selected-plugin">Select a plugin:</label>
-    <br>
-    <select name="selected-plugin" id="selected-plugin">
-    </select>
-    <button type="submit" form="plugin-select">Install</button>
-</form>
-
-<br>
-<h1>Order Plugins:</h1>
-<br>
-
-<link rel="stylesheet" href="https://code.jquery.com/ui/1.14.2/themes/base/jquery-ui.css">
-<style>
-li {
-	border: 0px solid #eeeeee;
-    border-bottom: solid 4px rgba(0, 0, 0, .2);
-	background: #1cb5ca;
-	color: #eeeeee;
-    cursor: pointer;
-    border-radius: 0.5rem;
-    font-weight: bold;
-}
-#enabled_plugins, #disabled_plugins {
-border: 1px solid #eee;
-width: 250px;
-min-height: 20px;
-list-style-type: none;
-margin: 0;
-padding: 5px 0 0 0;
-float: left;
-margin-right: 10px;
-}
-#enabled_plugins li, #disabled_plugins li {
-margin: 0 5px 5px 5px;
-padding: 5px;
-font-size: 1.2em;
-width: 230px;
-}
-</style>
-<script src="https://code.jquery.com/jquery-3.7.1.js"></script>
-<script src="https://code.jquery.com/ui/1.14.2/jquery-ui.js"></script>
-<script>
-$( function() {
-$( "#enabled_plugins, #disabled_plugins" ).sortable({
-    connectWith: ".connectedSortable"
-}).disableSelection();
-} );
-</script>
-
-<ul id="enabled_plugins" class="connectedSortable">
-</ul>
-
-<ul id="disabled_plugins" class="connectedSortable">
-</ul>
-
-<form id="plugin-reorder" action="/reorder" method="post">
-    <input type="hidden" id="enabled_ordered" name="enabled_ordered">
-    <input type="hidden" id="disabled_ordered" name="disabled_ordered">
-    <br>
-    <br>
-    <h1>Time between plugins (seconds):</h1>
-    <input type="number" id="delay_time" name="delay_time" min="5" value={{config.delay}}>
-    <button type="submit" onClick="sortLists()" form="plugin-reorder">Apply</button>
-</form>
-
-<script>
-    function sortLists() {
-        $( "#enabled_plugins" ).sortable( "refreshPositions" );
-        var enabled_sorted = $( "#enabled_plugins" ).sortable( "toArray" );
-        var disabled_sorted = $( "#disabled_plugins" ).sortable( "toArray" );
-        enabled_input = document.getElementById("enabled_ordered");
-        enabled_input.value = enabled_sorted;
-        disabled_input = document.getElementById("disabled_ordered");
-        disabled_input.value = disabled_sorted;
     }
-</script>
 
-{{render_template("html/footer.html")}}
+    loadPlugins();
+</script>

@@ -44,6 +44,7 @@ delay = int(config.delay)
 last_changed = None
 current_plugin = 0
 enabled_plugins = []
+disabled_plugins = []
 NUM_PLUGINS = 0
 modules = []
 
@@ -51,9 +52,10 @@ cx, cy = screen.width / 2, screen.height / 2
 
 
 def load_plugins():
-    global enabled_plugins, NUM_PLUGINS, modules, current_plugin, delay
+    global enabled_plugins, disabled_plugins, NUM_PLUGINS, modules, current_plugin, delay
 
     enabled_plugins = config.enabled_plugins
+    disabled_plugins = config.disabled_plugins
     delay = int(config.delay)
 
     NUM_PLUGINS = len(enabled_plugins)
@@ -137,12 +139,61 @@ def device_settings(request):
 def reorder_plugins(request):
     if request.method == "POST":
 
-        config.enabled_plugins = [k[7:] for k in request.form["enabled_ordered"].split(",") if k]
-        config.disabled_plugins = [k[7:] for k in request.form["disabled_ordered"].split(",") if k]
         config.delay = request.form["delay_time"]
 
         write_config()
         load_plugins()
+
+    return redirect(f"http://{DOMAIN}/")
+
+
+@server.route("/position", methods=["GET"])
+def position(request):
+
+    plugin_name = request.query.get("plugin")
+    move_action = request.query.get("action")
+
+    current_pos = enabled_plugins.index(plugin_name)
+
+    if move_action == "up":
+        new_pos = current_pos - 1
+    else:
+        new_pos = current_pos + 1
+
+    if new_pos < 0:
+        new_pos = 0
+    elif new_pos >= len(enabled_plugins):
+        new_pos = len(enabled_plugins) - 1
+
+    enabled_plugins.remove(plugin_name)
+    enabled_plugins.insert(new_pos, plugin_name)
+
+    config.enabled_plugins = enabled_plugins
+    write_config()
+    load_plugins()
+
+    return redirect(f"http://{DOMAIN}/")
+
+
+@server.route("/active", methods=["GET"])
+def set_active_state(request):
+
+    plugin_name = request.query.get("plugin")
+    plugin_state = request.query.get("state")
+
+    if plugin_state == "false":
+        if plugin_name in enabled_plugins:
+            enabled_plugins.remove(plugin_name)
+            disabled_plugins.append(plugin_name)
+    else:
+        if plugin_name in disabled_plugins:
+            disabled_plugins.remove(plugin_name)
+            enabled_plugins.append(plugin_name)
+
+    config.enabled_plugins = enabled_plugins
+    config.disabled_plugins = disabled_plugins
+    write_config()
+    load_plugins()
 
     return redirect(f"http://{DOMAIN}/")
 
@@ -165,7 +216,6 @@ def remove_plugin(request):
 
     # write this config
     write_config()
-
     load_plugins()
 
     # redirect back to the config page
