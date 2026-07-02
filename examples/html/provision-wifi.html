@@ -1,6 +1,11 @@
-{{render_template("html/header.html")}}
-
-{{render_template("html/header-mini.html")}}
+<!DOCTYPE html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="static/stylesheet.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap">
+    <title>Art Matrix Setup</title>
+</head>
 
 <section id="wifi_details">
   <form id="main" action="/provision-welcome" method="post">
@@ -133,5 +138,3 @@
             setup_form()
         }
     </script>
-
-{{render_template("html/footer.html")}}
