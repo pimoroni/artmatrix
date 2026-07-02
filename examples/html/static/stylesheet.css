@@ -1,5 +1,9 @@
 @charset "UTF-8";
 
+body {
+  background: linear-gradient(to bottom, #171717, #343434);
+}
+
 #all_plugins {
   list-style: none;
   padding: 0;

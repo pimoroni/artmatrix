@@ -61,26 +61,32 @@
                     config_link.onclick = function() {
                         window.location.href = `/config?plugin=${plugin}`;
                     }
-
+                    
                     var move_pos_up = document.createElement("button");
                     move_pos_up.className = "material-symbols-outlined";
                     move_pos_up.textContent = "arrow_upward";
                     move_pos_up.onclick = function() {
-                        window.location.href = `/position?plugin=${plugin}&action=up`;
+                        fetch(`/position?plugin=${plugin}&action=up`, {
+                            method: 'POST',
+                        }).then(() => location.reload());
                     }
-
+                    
                     var move_pos_down = document.createElement("button");
                     move_pos_down.className = "material-symbols-outlined";
                     move_pos_down.textContent = "arrow_downward";
                     move_pos_down.onclick = function() {
-                        window.location.href = `/position?plugin=${plugin}&action=down`;
+                        fetch(`/position?plugin=${plugin}&action=down`, {
+                            method: 'POST',
+                        }).then(() => location.reload());
                     }
 
                     var remove_link = document.createElement("button");
                     remove_link.className = "material-symbols-outlined";
                     remove_link.textContent = "delete";
                     remove_link.onclick = function() {
-                        window.location.href = `/remove?plugin=${plugin}`;
+                        fetch(`/remove?plugin=${plugin}`, {
+                            method: 'POST',
+                        }).then(() => location.reload());
                     }
 
                     var enable_toggle = document.createElement("input");
@@ -91,13 +97,12 @@
                     enable_toggle.addEventListener("click", function() {
                         console.log(this.id);
                         fetch(`/active?plugin=${plugin}&state=${this.checked}`, {
-                            method: 'GET'
+                            method: 'POST',
                         })
                         .then(() => {
                             document.location.reload();
                         })
                     });
-
 
                     if (plugin) {
                         var item = document.createElement("li");

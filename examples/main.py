@@ -15,10 +15,6 @@ screen.antialias = image.X4
 # Provisioning
 ###
 
-# Disable automatic garbage collection,
-# we want to have more control over collection to prevent stuttering
-gc.disable()
-
 loop = asyncio.get_event_loop()
 
 needs_provisioning = False
@@ -147,7 +143,7 @@ def reorder_plugins(request):
     return redirect(f"http://{DOMAIN}/")
 
 
-@server.route("/position", methods=["GET"])
+@server.route("/position", methods=["POST"])
 def position(request):
 
     plugin_name = request.query.get("plugin")
@@ -172,10 +168,10 @@ def position(request):
     write_config()
     load_plugins()
 
-    return redirect(f"http://{DOMAIN}/")
+    return "OK", 200
 
 
-@server.route("/active", methods=["GET"])
+@server.route("/active", methods=["POST"])
 def set_active_state(request):
 
     plugin_name = request.query.get("plugin")
@@ -195,10 +191,10 @@ def set_active_state(request):
     write_config()
     load_plugins()
 
-    return redirect(f"http://{DOMAIN}/")
+    return "OK", 200
 
 
-@server.route("/remove")
+@server.route("/remove", methods=["POST"])
 def remove_plugin(request):
 
     # parse out the plugin name and create the path to remove
@@ -219,7 +215,7 @@ def remove_plugin(request):
     load_plugins()
 
     # redirect back to the config page
-    return redirect(f"http://{DOMAIN}/")
+    return "OK", 200
 
 
 @server.route("/config", methods=["GET", "POST"])
