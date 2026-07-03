@@ -20,6 +20,8 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)
 
 # PicoVector & MicroPython bindings
+# Single-core rasterisation on ArtMatrix (PV_DUAL_CORE is off by default).
+set(PV_DUAL_CORE OFF)
 find_package(PICOVECTOR_MICROPYTHON CONFIG REQUIRED)
 
 # Build picovector for Pico
@@ -46,9 +48,6 @@ include(modules_py/modules_py)
 
 # C++ Magic Memory
 include(cppmem/micropython)
-
-# Disable build-busting C++ exceptions
-include(micropython-disable-exceptions)
 
 # Must call `enable_ulab()` to enable
 include(micropython-common-ulab)
