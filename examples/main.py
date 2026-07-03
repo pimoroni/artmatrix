@@ -100,7 +100,7 @@ def write_config():
 def catchall(request):
     # requested domain was wrong
     if request.headers.get("host") != DOMAIN:
-        return redirect(f"http://{DOMAIN}/wrong-host-redirect")
+        return redirect(f"http://{DOMAIN}/wrong-host-redirect", status=302)
 
     # check if requested file exists
     file = f"html{request.path}"
