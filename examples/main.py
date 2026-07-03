@@ -49,35 +49,6 @@ modules = []
 cx, cy = screen.width / 2, screen.height / 2
 
 
-def load_plugins():
-    global enabled_plugins, disabled_plugins, NUM_PLUGINS, modules, current_plugin, delay
-
-    enabled_plugins = config.enabled_plugins
-    disabled_plugins = config.disabled_plugins
-    delay = int(config.delay)
-
-    NUM_PLUGINS = len(enabled_plugins)
-    modules = []
-    for plugin in enabled_plugins:
-        modules.append((f"{plugin}", __import__(f"/lib/plugins/{plugin}")))
-
-    # reset the current to zero, start from the beginning.
-    current_plugin = 0
-
-
-def rmtree(d):
-    if not d:
-        raise ValueError
-
-    for name, type, *_ in os.ilistdir(d):
-        path = d + "/" + name
-        if type & 0x4000:  # dir
-            rmtree(path)
-        else:  # file
-            os.unlink(path)
-    os.rmdir(d)
-
-
 def write_config():
     lines = []
     with open("config.py", "r") as infile:
@@ -94,6 +65,53 @@ def write_config():
 
     with open("config.py", "w") as outfile:
         outfile.write("\n".join(lines))
+
+
+def load_plugins():
+    global enabled_plugins, disabled_plugins, NUM_PLUGINS, modules, current_plugin, delay
+
+    enabled_plugins = config.enabled_plugins
+    disabled_plugins = config.disabled_plugins
+    delay = int(config.delay)
+
+    plugins_on_disk = os.listdir("lib/plugins")
+    combined = enabled_plugins + disabled_plugins
+
+    # remove plugins that no longer exist on disk
+    enabled_plugins = [p for p in enabled_plugins if p in plugins_on_disk]
+    disabled_plugins = [p for p in disabled_plugins if p in plugins_on_disk]
+
+    # add plugins that have been added to the disk
+    to_add = list(set(plugins_on_disk) - set(combined))
+    disabled_plugins += to_add
+
+    # save back to config
+    config.enabled_plugins = enabled_plugins
+    config.disabled_plugins = sorted(disabled_plugins)
+
+    # and write them out if changes have been made to either remove or add
+    if to_add or len(enabled_plugins) + len(disabled_plugins) != len(combined):
+        write_config()
+
+    # import enabled plugins
+    NUM_PLUGINS = len(enabled_plugins)
+    modules = [(plugin, __import__(f"/lib/plugins/{plugin}")) for plugin in enabled_plugins]
+
+    # reset the current to zero, start from the beginning.
+    current_plugin = 0
+
+
+def rmtree(d):
+    if not d:
+        raise ValueError
+
+    for name, type, *_ in os.ilistdir(d):
+        path = d + "/" + name
+        if type & 0x4000:  # dir
+            rmtree(path)
+        else:  # file
+            os.unlink(path)
+    os.rmdir(d)
 
 
 @server.catchall()
