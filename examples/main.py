@@ -98,14 +98,15 @@ def write_config():
 
 @server.catchall()
 def catchall(request):
-    # requested domain was wrong
-    if request.headers.get("host") != DOMAIN:
-        return redirect(f"http://{DOMAIN}/wrong-host-redirect", status=302)
 
     # check if requested file exists
     file = f"html{request.path}"
     if file_exists(file):
         return serve_file(file)
+
+    # requested domain was wrong
+    if request.headers.get("host") != DOMAIN:
+        return redirect(f"http://{DOMAIN}/wrong-host-redirect", status=302)
 
     return "404 Not Found Buddy!", 404
 
@@ -273,11 +274,17 @@ def show_no_plugins():
     screen.pen = color.white
     screen.font = rom_font.nope
     screen.text("No Plugins :(", 5, y)
-    y += 75
+    y += 45
     screen.text("Go to", 5, y)
     y += 15
     screen.pen = color.blue
     screen.text(f"{config.wifi_hostname}.local", 5, y)
+    y += 15
+    screen.pen = color.white
+    screen.text("Or", 5, y)
+    y += 15
+    screen.pen = color.blue
+    screen.text(f"{wifi.ipv4()}", 5, y)
     y += 15
     screen.pen = color.white
     screen.text("in your browser.", 5, y)
