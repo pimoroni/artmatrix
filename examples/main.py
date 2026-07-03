@@ -1,13 +1,15 @@
-from phew import server, redirect, serve_file, render_template
-import time
 import asyncio
-import mip
-import requests
+import gc
 import json
 import os
 import sys
-import gc
+import time
+
+import mip
 import ntptime
+import requests
+from easing import easeOutCubic
+from phew import redirect, render_template, serve_file, server
 
 screen.antialias = image.X4
 
@@ -20,7 +22,7 @@ loop = asyncio.get_event_loop()
 needs_provisioning = False
 
 try:
-    import config   # fails to import (missing/corrupt) go into provisioning
+    import config  # fails to import (missing/corrupt) go into provisioning
     if not config.provisioned:   # provisioned flag not set go into provisioning
         needs_provisioning = True
 except Exception:
@@ -30,7 +32,7 @@ if needs_provisioning:
     import provisioning    # noqa F401
     # control never returns to here, provisioning takes over completely
 
-import wifi     # noqa E402
+import wifi  # noqa E402
 
 # Location of plugin index
 INDEX_URL = "https://raw.githubusercontent.com/pimoroni/monkey-banana/refs/heads/main/index.json"
@@ -262,11 +264,36 @@ def draw_wifi_icon(col):
     screen.shape(wifi_outline)
 
 
+def show_no_plugins():
+
+    screen.pen = color.rgb(0, 0, 0)
+    screen.clear()
+
+    y = 5
+    screen.pen = color.white
+    screen.font = rom_font.nope
+    screen.text("No Plugins :(", 5, y)
+    y += 75
+    screen.text("Go to", 5, y)
+    y += 15
+    screen.pen = color.blue
+    screen.text(f"{config.wifi_hostname}.local", 5, y)
+    y += 15
+    screen.pen = color.white
+    screen.text("in your browser.", 5, y)
+
+
+FADE_DURATION = 200
+fade_start = 0
+fading = False
+prev_plugin = None
+next_plugin = None
+
+
 async def draw():
-    global last_changed, current_plugin
+    global last_changed, current_plugin, prev_plugin, next_plugin, fade_start, fading
 
     last_changed = time.time()
-
     screen.pen = color.rgb(0, 0, 0)
     screen.clear()
 
@@ -274,40 +301,45 @@ async def draw():
 
         if modules:
 
-            modules[current_plugin][1].update()
+            if fading:
+                fade_progress = min(1.0, time.ticks_diff(time.ticks_ms(), fade_start) / FADE_DURATION)
+                t = int(255 * easeOutCubic(fade_progress))
 
-            if (time.time() - last_changed) > delay and len(modules) > 1:
-                gc.collect()
-                print(f"MEM FREE:{gc.mem_free()}")
-                screen.pen = color.rgb(0, 0, 0)
-                screen.clear()
-                screen.pen = color.white
-                screen.font = rom_font.sins
-                screen.text("Loading...", vec2(0, 0))
+                screen.alpha = 255
+                screen.blit(prev_plugin, vec2(0, 0))
+                screen.alpha = t
+                screen.blit(next_plugin, vec2(0, 0))
 
-                current_plugin += 1
-                current_plugin %= NUM_PLUGINS
-                last_changed = time.time()
+                if t >= 255:
+                    fading = False
+                    screen.alpha = 255
+                    del prev_plugin, next_plugin
+                    gc.collect()
+
+                display.update()
+            else:
+                modules[current_plugin][1].update()
+                display.update()
+
+                if (time.time() - last_changed) > delay and len(modules) > 1:
+                    gc.collect()
+
+                    prev_plugin = image(screen.width, screen.height)
+                    prev_plugin.blit(screen, vec2(0, 0))
+
+                    current_plugin += 1
+                    current_plugin %= NUM_PLUGINS
+
+                    modules[current_plugin][1].update()
+
+                    next_plugin = image(screen.width, screen.height)
+                    next_plugin.blit(screen, vec2(0, 0))
+
+                    fade_start = time.ticks_ms()
+                    last_changed = time.time()
+                    fading = True
         else:
-            y = 5
-            screen.pen = color.white
-            screen.font = rom_font.nope
-            screen.text("No Plugins :(", 5, y)
-            y += 45
-            screen.text("Go to", 5, y)
-            y += 15
-            screen.pen = color.blue
-            screen.text(f"{config.wifi_hostname}.local", 5, y)
-            y += 15
-            screen.pen = color.white
-            screen.text("Or", 5, y)
-            y += 15
-            screen.pen = color.blue
-            screen.text(f"{wifi.ipv4()}", 5, y)
-            y += 15
-            screen.pen = color.white
-            screen.text("in your browser.", 5, y)
-
+            show_no_plugins()
             display.update()
 
         await asyncio.sleep_ms(10)
@@ -334,6 +366,7 @@ screen.clear()
 draw_wifi_icon(color.green)
 display.update()
 
+print(config.wifi_hostname)
 DOMAIN = f"{config.wifi_hostname}.local"
 
 loop.create_task(draw())
