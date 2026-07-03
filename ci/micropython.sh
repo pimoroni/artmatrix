@@ -8,6 +8,8 @@ MICROPYTHON_VERSION="v1.27.0"
 PIMORONI_PICO_FLAVOUR="pimoroni"
 PIMORONI_PICO_VERSION="v1.27.0"
 
+PIMORONI_PICOVECTOR_VERSION="main"
+
 PY_DECL_VERSION="v0.0.5"
 DIR2UF2_VERSION="v0.1.0"
 FFSMAKE_VERSION="v0.0.3"
@@ -30,6 +32,13 @@ function ci_pimoroni_pico_clone {
     git clone https://github.com/$PIMORONI_PICO_FLAVOUR/pimoroni-pico "$CI_BUILD_ROOT/pimoroni-pico"
     git -C "$CI_BUILD_ROOT/pimoroni-pico" checkout $PIMORONI_PICO_VERSION
     git -C "$CI_BUILD_ROOT/pimoroni-pico" submodule update --init
+}
+
+function ci_pimoroni_picovector_clone {
+    log_inform "Using Pimoroni PicoVector pimoroni/$PIMORONI_PICOVECTOR_VERSION"
+    git clone https://github.com/pimoroni/picovector-micropython "$CI_BUILD_ROOT/picovector-micropython"
+    git -C "$CI_BUILD_ROOT/picovector-micropython" checkout $PIMORONI_PICOVECTOR_VERSION
+    git -C "$CI_BUILD_ROOT/picovector-micropython" submodule update --init
 }
 
 function ci_micropython_clone {
@@ -79,6 +88,7 @@ function ci_prepare_all {
     ci_tools_clone
     ci_micropython_clone
     ci_pimoroni_pico_clone
+    ci_pimoroni_picovector_clone
     ci_micropython_build_mpy_cross
 }
 
@@ -127,6 +137,7 @@ function ci_cmake_configure {
     -DPICO_NO_COPRO_DIS=1 \
     -DPICOTOOL_FETCH_FROM_GIT_PATH="$TOOLS_DIR/picotool" \
     -DPIMORONI_PICO_PATH="$CI_BUILD_ROOT/pimoroni-pico" \
+    -DPICOVECTOR_MICROPYTHON_DIR="$CI_BUILD_ROOT/picovector-micropython" \
     -DPIMORONI_TOOLS_DIR="$TOOLS_DIR" \
     -DUSER_C_MODULES="$MICROPY_BOARD_DIR/usermodules.cmake" \
     -DMICROPY_BOARD_DIR="$MICROPY_BOARD_DIR" \
