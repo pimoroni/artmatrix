@@ -161,7 +161,7 @@ def reorder_plugins(request):
         write_config()
         load_plugins()
 
-    return redirect(f"http://{DOMAIN}/")
+    return redirect("/")
 
 
 @server.route("/position", methods=["POST"])
@@ -254,7 +254,7 @@ def configure_plugin(request):
         index = [modules.index(m) for m in modules if m[0] == plugin][0]
         modules[index] = (f"{plugin}", __import__(f"lib/plugins/{plugin}"))
 
-        return redirect(f"http://{DOMAIN}/", status=303)
+        return redirect("/", status=303)
 
     return render_template("html/config.html", plugin=plugin, placeholder=p)
 
