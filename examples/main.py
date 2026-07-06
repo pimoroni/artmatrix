@@ -254,10 +254,9 @@ def configure_plugin(request):
         index = [modules.index(m) for m in modules if m[0] == plugin][0]
         modules[index] = (f"{plugin}", __import__(f"lib/plugins/{plugin}"))
 
-    try:
-        return p.config
-    except AttributeError:
-        return redirect(f"http://{DOMAIN}/")
+        return redirect(f"http://{DOMAIN}/", status=303)
+
+    return render_template("html/config.html", plugin=plugin, placeholder=p)
 
 
 @server.route("/plugins.json")
@@ -308,7 +307,7 @@ def show_no_plugins():
     screen.text("in your browser.", 5, y)
 
 
-FADE_DURATION = 200
+FADE_DURATION = 500
 fade_start = 0
 fading = False
 prev_plugin = None
