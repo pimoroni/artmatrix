@@ -9,9 +9,9 @@
 <body>
   <main>
     <h1>Plugin Settings</h1>
-    <button type="button" onclick="location.href='/'">←</button>
+    <button type="button" class="secondary" onclick="location.href='/'">←</button>
     {{ render_template(f"lib/plugins/{plugin}/config.html", plugin=plugin, placeholder=placeholder) }}
-    <button type="button" onclick="location.href='/'">←</button>
+    <button type="button" class="secondary" onclick="location.href='/'">←</button>
   </main>
 </body>
 </html>
