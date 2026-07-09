@@ -87,9 +87,6 @@ void __isr __not_in_flash_func(dma_complete)() {
     if(artmatrix_obj.artmatrix) artmatrix_obj.artmatrix->dma_complete();
 }
 
-#define LOCKOUT_MAGIC_START 0x73a8831eu
-#define LOCKOUT_MAGIC_END (~LOCKOUT_MAGIC_START)
-
 #define stack_size 8192u
 static uint32_t core1_stack[stack_size] = {0};
 
@@ -99,31 +96,11 @@ static uint32_t core1_stack[stack_size] = {0};
 __attribute__((section(".uninitialized_data"))) static uint32_t artmatrix_buffer[sizeof(ArtMatrix) / sizeof(uint32_t)];
 
 
-// Alternative version of the lockout handler which does not disable interrupts
-// We know that all interrupts running on core1 will not access flash or PSRAM, so this is safe.
-static void __isr __not_in_flash_func(artmatrix_core1_lockout_handler)(void) {
-    multicore_fifo_clear_irq();
-    while (multicore_fifo_rvalid()) {
-        if (sio_hw->fifo_rd == LOCKOUT_MAGIC_START) {
-            sio_hw->fifo_wr = LOCKOUT_MAGIC_START;
-            __sev();
-            while (multicore_fifo_pop_blocking_inline() != LOCKOUT_MAGIC_END) {
-                tight_loop_contents(); // not tight but endless potentially
-            }
-            sio_hw->fifo_wr = LOCKOUT_MAGIC_END;
-            __sev();
-        }
-    }
-}
-
 void artmatrix_core1_entry() {
-    // The multicore lockout uses the FIFO, so we use just use sev and volatile flags to signal this core
+    // Installs the SDK's SIO FIFO lockout handler. Since pico-sdk 2.2.0 the lockout
+    // release is signalled by mutating multicore.c's private lockout_request_id, so a
+    // downstream copy of the handler cannot see it; use the SDK's own.
     multicore_lockout_victim_init();
-
-    // Replace the lockout handler
-    irq_handler_t sdk_handler = irq_get_exclusive_handler(SIO_IRQ_FIFO);
-    irq_remove_handler(SIO_IRQ_FIFO, sdk_handler);
-    irq_set_exclusive_handler(SIO_IRQ_FIFO, artmatrix_core1_lockout_handler);
 
     artmatrix_obj.artmatrix->start(dma_complete);
 
@@ -143,9 +120,6 @@ void artmatrix_core1_entry() {
 
     artmatrix_obj.artmatrix->stop(dma_complete);
 
-    // Restore the original lockout handler and deinit.
-    irq_remove_handler(SIO_IRQ_FIFO, artmatrix_core1_lockout_handler);
-    irq_set_exclusive_handler(SIO_IRQ_FIFO, sdk_handler);
     multicore_lockout_victim_deinit();
 
     multicore_fifo_push_blocking(0);
