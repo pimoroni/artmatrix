@@ -29,31 +29,6 @@ pulse_loop:
     jmp x-- pulse_loop side 0x0 ; Assert OEn for x+1 cycles
 .wrap
 
-.program artmatrix_row_inverted
-
-; side-set pin 0 is LATCH
-; side-set pin 1 is OEn
-; OUT pins are row select A-E
-;
-; Each FIFO record consists of:
-; - 5-bit row select (LSBs)
-; - Pulse width - 1 (27 MSBs)
-;
-; Repeatedly select a row, pulse LATCH, and generate a pulse of a certain
-; width on OEn.
-
-.side_set 2
-
-.wrap_target
-    out pins, 5 [1]    side 0x3 ; Deassert OEn, output row select
-    mov x, y    [3]    side 0x2 ; Pulse LATCH
-wait_loop:
-    jmp x-- wait_loop  side 0x3 ; Wait for row to latch
-    out x, 27          side 0x3 ; Get OEn pulse width
-pulse_loop:
-    jmp x-- pulse_loop side 0x1 ; Assert OEn for x+1 cycles
-.wrap
-
 % c-sdk {
 static inline void artmatrix_row_program_init(PIO pio, uint sm, uint offset, uint row_base_pin, uint n_row_pins, uint latch_base_pin, uint latch_cycles) {
     pio_sm_set_consecutive_pindirs(pio, sm, row_base_pin, n_row_pins, true);

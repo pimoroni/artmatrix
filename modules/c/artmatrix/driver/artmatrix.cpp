@@ -1,7 +1,3 @@
-#include <cstring>
-#include <algorithm>
-#include <cmath>
-
 #include "hardware/clocks.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/address_mapped.h"
@@ -9,6 +5,7 @@
 
 #include "artmatrix.hpp"
 
+// For gating full-brightness mode on VBUS.
 static inline bool usb_connected(void) {
     return (usb_hw->sie_status & USB_SIE_STATUS_CONNECTED_BITS) >> USB_SIE_STATUS_CONNECTED_LSB;
 }
@@ -50,8 +47,9 @@ void gpio_put_both(uint32_t pin, bool value) {
 
 void ArtMatrix::start(irq_handler_t handler) {
     if(handler) {
-        // Prevent ghosting
-        uint32_t latch_cycles = clock_get_hz(clk_sys) / 4000000;
+        // Prevent ghosting. In PIO cycles, so derived from the nominal clock
+        // to stay put when the user overclocks.
+        uint32_t latch_cycles = SYS_CLK_HZ / 4000000;
 
         // Claim the PIO so we can clean it upon soft restart
         pio_sm_claim(pio_a, sm_data_a1);
@@ -77,22 +75,15 @@ void ArtMatrix::start(irq_handler_t handler) {
         artmatrix_row_program_init(pio_a, sm_row_a, row_prog_offs_a, ROWSEL_BASE_PIN, ROWSEL_N_PINS, pin_stb, latch_cycles);
         artmatrix_row_program_init(pio_b, sm_row_b, row_prog_offs_b, ROWSEL_BASE_PIN + 30, ROWSEL_N_PINS, pin_stb + 30, latch_cycles);
 
-        // Keep PIO constant when overclocked
-        const float clock_hz = SYS_CLK_MHZ * 1000000;
-        pio_sm_set_clkdiv(pio_a, sm_data_a1, clock_get_hz(clk_sys) / clock_hz);
-        pio_sm_set_clkdiv(pio_a, sm_data_a2, clock_get_hz(clk_sys) / clock_hz);
-        pio_sm_set_clkdiv(pio_b, sm_data_b1, clock_get_hz(clk_sys) / clock_hz);
-        pio_sm_set_clkdiv(pio_b, sm_data_b2, clock_get_hz(clk_sys) / clock_hz);
-        pio_sm_set_clkdiv(pio_a, sm_row_a, clock_get_hz(clk_sys) / clock_hz);
-        pio_sm_set_clkdiv(pio_b, sm_row_b, clock_get_hz(clk_sys) / clock_hz);
-
-        // Let PIO run wild and free!
-        pio_sm_set_clkdiv(pio_a, sm_data_a1, 1.5f);
-        pio_sm_set_clkdiv(pio_a, sm_data_a2, 1.5f);
-        pio_sm_set_clkdiv(pio_b, sm_data_b1, 1.5f);
-        pio_sm_set_clkdiv(pio_b, sm_data_b2, 1.5f);
-        pio_sm_set_clkdiv(pio_a, sm_row_a, 1.5f);
-        pio_sm_set_clkdiv(pio_b, sm_row_b, 1.5f);
+        // Keep PIO constant when overclocked, so refresh rate and OEn pulse
+        // widths (and therefore brightness) don't move with clk_sys.
+        const float clkdiv = 1.5f * clock_get_hz(clk_sys) / (float)SYS_CLK_HZ;
+        pio_sm_set_clkdiv(pio_a, sm_data_a1, clkdiv);
+        pio_sm_set_clkdiv(pio_a, sm_data_a2, clkdiv);
+        pio_sm_set_clkdiv(pio_b, sm_data_b1, clkdiv);
+        pio_sm_set_clkdiv(pio_b, sm_data_b2, clkdiv);
+        pio_sm_set_clkdiv(pio_a, sm_row_a, clkdiv);
+        pio_sm_set_clkdiv(pio_b, sm_row_b, clkdiv);
 
         dma_channel_a1 = dma_claim_unused_channel(true);
         dma_channel_config config_a1 = dma_channel_get_default_config(dma_channel_a1);
@@ -224,7 +215,7 @@ void ArtMatrix::stop(irq_handler_t handler) {
     if(pio_sm_is_claimed(pio_b, sm_row_b)) {
         pio_sm_set_enabled(pio_b, sm_row_b, false);
         pio_sm_clear_fifos(pio_b, sm_row_b);
-        pio_remove_program(pio_b, &artmatrix_row_inverted_program, row_prog_offs_b);
+        pio_remove_program(pio_b, &artmatrix_row_program, row_prog_offs_b);
         pio_sm_unclaim(pio_b, sm_row_b);
     }
 
@@ -262,8 +253,9 @@ void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
         artmatrix_wait_tx_stall(pio_b, sm_row_b);
 
         // Latch row data, pulse output enable for new row.
-        pio_sm_put_blocking(pio_a, sm_row_a, row_a | ((brightness << bit_a) - 4) << 5);
-        pio_sm_put_blocking(pio_b, sm_row_b, row_a | ((brightness << bit_a) - 4) << 5);
+        // Both row SMs just stalled, so their TX FIFOs are known empty.
+        pio_sm_put(pio_a, sm_row_a, row_a | ((brightness << bit_a) - 4) << 5);
+        pio_sm_put(pio_b, sm_row_b, row_a | ((brightness << bit_a) - 4) << 5);
 
         row_a++;
 
@@ -294,29 +286,27 @@ uint32_t* ArtMatrix::get_framebuffer(void) {
     return front_buffer;
 }
 
-void ArtMatrix::update(void) {
-    uint32_t *p = front_buffer;
+static inline uint32_t gamma_pack(uint32_t rgb) {
+    return (GAMMA_10BIT[rgb & 0xff] << 0) | (GAMMA_10BIT[(rgb >> 8) & 0xff] << 10) | (GAMMA_10BIT[(rgb >> 16) & 0xff] << 20);
+}
+
+void __no_inline_not_in_flash_func(ArtMatrix::update(void)) {
+    const uint32_t *p = front_buffer;
     for(uint32_t y = 0u; y < height; y++) {
         // We are swapping X and Y to achieve a 90 degree rotation
         // Mirror along the Y axis (top to bottom)
-        uint32_t sx = height - 1 - y;
-        for(uint32_t x = 0u; x < width; x++) {
-            uint32_t sy = x;
-            uint32_t offset = sx;
+        const uint32_t sx = height - 1 - y;
 
-            uint32_t rgb = *p++;
+        // Source x picks the panel, so walk each half separately. Within a
+        // half the destination just advances one row (`width`) per pixel.
+        Pixel *b = &back_buffer[panel_b_offset + sx];
+        for(uint32_t x = 0u; x < width / 2; x++, b += width) {
+            *b = gamma_pack(*p++);
+        }
 
-            // If we're on the second panel, shift up our pixel and adjust
-            // the offset to place it into the latter half of the buffer.
-            if(sy >= height / 2) {
-                sy -= height / 2;
-            } else {
-                offset += panel_b_offset;
-            }
-
-            offset += sy * width;
-
-            back_buffer[offset] = (GAMMA_10BIT[rgb & 0xff] << 0) | (GAMMA_10BIT[(rgb >> 8) & 0xff] << 10) | (GAMMA_10BIT[(rgb >> 16) & 0xff] << 20);
+        Pixel *a = &back_buffer[sx];
+        for(uint32_t x = 0u; x < width / 2; x++, a += width) {
+            *a = gamma_pack(*p++);
         }
     }
 }

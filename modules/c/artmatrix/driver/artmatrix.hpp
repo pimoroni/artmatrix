@@ -59,13 +59,6 @@ struct Pixel {
     constexpr Pixel(uint8_t r, uint8_t g, uint8_t b) : color((GAMMA_10BIT[b] << 20) | (GAMMA_10BIT[g] << 10) | GAMMA_10BIT[r]) {};
 };
 
-enum PanelType {
-    PANEL_GENERIC = 0,
-    PANEL_FM6126A,
-};
-
-Pixel hsv_to_rgb(float h, float s, float v);
-
 const uint32_t width = 128;
 const uint32_t height = 128;
 
@@ -128,7 +121,6 @@ class ArtMatrix {
     const bool clk_polarity = 1;
     const bool stb_polarity = 1;
     const bool oe_polarity = 0;
-    void copy_to_back_buffer(void *data, size_t len, int start_x, int start_y);
 
     public:
     ArtMatrix(void);

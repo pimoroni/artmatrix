@@ -109,13 +109,14 @@ void artmatrix_core1_entry() {
     // artmatrix is now running the display using interrupts on this core.
     // We can also drive the backlight if requested.
     while (!artmatrix_obj.exit_core1) {
-        if (artmatrix_obj.exit_core1) {
-            break;
-        }
         if (artmatrix_obj.flip) {
             artmatrix_obj.artmatrix->update();
             artmatrix_obj.flip = false;
+            continue;
         }
+        // Core0 __sev()s after setting either flag, and the display DMA IRQ
+        // wakes us regardless, so don't spin on the bus the DMA is using.
+        __wfe();
     }
 
     artmatrix_obj.artmatrix->stop(dma_complete);
