@@ -25,6 +25,54 @@ data shift-out, not by OEn.
 */
 const uint BRIGHTNESS_MIN = 5;
 const uint BRIGHTNESS_MAX = 16;
+const uint BRIGHTNESS_STEPS = BRIGHTNESS_MAX - BRIGHTNESS_MIN + 1;
+
+// Duty cycle at each multiplier, relative to BRIGHTNESS_MAX. Not linear in the
+// multiplier: the low bitplanes are bound by the data shift-out, so widening
+// their OEn pulse buys nothing while still lengthening the frame.
+static constexpr float OE_DUTY[BRIGHTNESS_STEPS] = {
+    0.4765f, 0.5550f, 0.6199f, 0.6793f, 0.7339f, 0.7843f,
+    0.8310f, 0.8744f, 0.9097f, 0.9421f, 0.9721f, 1.0000f
+};
+
+// Perceptual units per power_tick(), so ~0.4s from black to target.
+constexpr float BRIGHTNESS_RAMP_STEP = 0.01f;
+
+// A sag knocks the ceiling to 0.75x; this earns it back over roughly 8s, so a
+// transient doesn't dim the panel for the rest of the session.
+constexpr float BRIGHTNESS_CEILING_RECOVER = 0.0005f;
+
+// The SDK's ADC_BASE_PIN is 40 on RP2350B, putting ADC0-7 on GPIO40-47.
+const uint ADC_CUR_SENSE = 4;   // GPIO44
+const uint ADC_SENSOR_IN = 5;   // GPIO45, the SENS header
+const uint ADC_VLED_SENSE = 6;  // GPIO46
+
+/*
+384 samples at 96kSPS over three round-robin inputs spans 4ms, comfortably more
+than one 3.15ms frame. Panel current is pulsed at the OEn duty cycle, with
+structure at both the row slot and the frame, so a shorter window would just
+catch one arbitrary corner of one bitplane.
+*/
+const uint ADC_SAMPLES = 384;
+const uint ADC_PER_INPUT = ADC_SAMPLES / 3;
+constexpr float ADC_CLKDIV = 499.0f; // 48MHz / (499 + 1)
+
+/*
+VLED_SENSE hangs off a 10k/10k divider, so a count is 1.61mV at the pin and
+3.22mV of VLED. 5V reads 3102 of 4095.
+*/
+const uint32_t VLED_HEADROOM_COUNTS = 2854; // 4.6V, room to earn brightness back
+const uint32_t VLED_GOOD_COUNTS = 2668;     // 4.3V, panel is happy
+const uint32_t VLED_TRIP_COUNTS = 2482;     // 4.0V, blank the output
+const uint32_t VLED_ABSENT_COUNTS = 1241;   // 2.0V, supply is gone, go hi-z
+const uint VLED_DEBOUNCE = 3;               // captures, so ~12ms
+
+/*
+CUR_SENSE is the eFuse IMON output at 0.1906 V/A, so a count is 4.23mA. The
+part limits at 3.3A (781 counts); stay below that so it never trips.
+*/
+const uint32_t CUR_BUDGET_COUNTS = 591;      // 2.5A
+const uint32_t CUR_BUDGET_HYSTERESIS = 47;   // 200mA, so we don't hunt
 
 /*
 14-bit gamma table, gamma correcting our 8-bit colour values into four bits
@@ -92,6 +140,26 @@ class ArtMatrix {
 
     private:
     const uint32_t panel_b_offset = (width * height / 2);
+
+    // Power management
+    irq_handler_t irq_handler = nullptr;
+    int dma_channel_adc = -1;
+    bool panel_powered = false;
+    bool blank = true;
+    uint vled_good_count = 0;
+    uint vled_absent_count = 0;
+    uint16_t sensor_counts = 0;
+    volatile float brightness_target = 1.0f; // written by core0
+    float brightness_allowed = 0.0f;         // core1, what the supply will hold
+    float brightness_ceiling = 1.0f;         // core1, what it held last time
+    float brightness_applied = -1.0f;
+
+    void gpio_hiz(void);
+    void gpio_drive(void);
+    void adc_capture_start(void);
+    void power_up(void);
+    void apply_gamma_scale(uint32_t scale);
+    void apply_brightness(float value);
 
     // DMA & PIO
     int dma_channel_a1 = -1;
@@ -161,8 +229,13 @@ class ArtMatrix {
     uint32_t* get_framebuffer(void);
     void update(void);
 
+    void begin(irq_handler_t handler);
+    void power_tick(void);
+    void power_down(void);
+    bool is_powered(void);
+
     void set_brightness(float value);
-    void set_full_brightness(bool full);
+    uint16_t get_sensor(void);
 
     };
 }

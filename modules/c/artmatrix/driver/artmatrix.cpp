@@ -1,19 +1,17 @@
+#include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/structs/bus_ctrl.h"
-#include "hardware/address_mapped.h"
-#include "hardware/structs/usb.h"
 
 #include "artmatrix.hpp"
-
-// For gating full-brightness mode on VBUS.
-static inline bool usb_connected(void) {
-    return (usb_hw->sie_status & USB_SIE_STATUS_CONNECTED_BITS) >> USB_SIE_STATUS_CONNECTED_LSB;
-}
 
 namespace pimoroni {
 
 static uint32_t __attribute__ ((aligned (4))) front_buffer[width * height];
 static Pixel __attribute__ ((aligned (4))) back_buffer[width * height];
+
+// Kept out of the class so ArtMatrix stays small enough for the placement-new
+// buffer the bindings reserve for it.
+static uint16_t __attribute__ ((aligned (4))) adc_buffer[ADC_SAMPLES];
 
 // GAMMA_14BIT scaled by set_brightness(). Save ~0.12ms per flip by keeping it
 // in SRAM.
@@ -31,28 +29,54 @@ static const uint8_t __not_in_flash("bayer") BAYER_4X4[16] = {
 #define GPIO_INIT_BOTH(pin, initial) gpio_init(pin); gpio_set_function(pin, GPIO_FUNC_SIO); gpio_set_dir(pin, true); gpio_put(pin, initial); \
                                      gpio_init(pin + 30); gpio_set_function(pin + 30, GPIO_FUNC_SIO); gpio_set_dir(pin + 30, true); gpio_put(pin + 30, initial)
 
-ArtMatrix::ArtMatrix()
- {
-    set_brightness(1.0f);
+#define GPIO_HIZ_BOTH(pin) gpio_init(pin); gpio_set_function(pin, GPIO_FUNC_SIO); gpio_set_dir(pin, false); gpio_disable_pulls(pin); \
+                           gpio_init(pin + 30); gpio_set_function(pin + 30, GPIO_FUNC_SIO); gpio_set_dir(pin + 30, false); gpio_disable_pulls(pin + 30)
 
-    // Set up allllll the GPIO
-    GPIO_INIT_BOTH(pin_r0, 0);
-    GPIO_INIT_BOTH(pin_g0, 0);
-    GPIO_INIT_BOTH(pin_b0, 0);
+#define FOR_EACH_MATRIX_PIN(op, ...) op(pin_r0, ##__VA_ARGS__); op(pin_g0, ##__VA_ARGS__); op(pin_b0, ##__VA_ARGS__); \
+                                     op(pin_r1, ##__VA_ARGS__); op(pin_g1, ##__VA_ARGS__); op(pin_b1, ##__VA_ARGS__); \
+                                     op(pin_row_a, ##__VA_ARGS__); op(pin_row_b, ##__VA_ARGS__); op(pin_row_c, ##__VA_ARGS__); \
+                                     op(pin_row_d, ##__VA_ARGS__); op(pin_row_e, ##__VA_ARGS__)
 
-    GPIO_INIT_BOTH(pin_r1, 0);
-    GPIO_INIT_BOTH(pin_g1, 0);
-    GPIO_INIT_BOTH(pin_b1, 0);
+// Every HUB75 pin an input, no pulls. An unpowered panel leaks whatever we
+// drive into it back up its VLED rail and onto VBUS, and some USB supplies
+// then refuse to start into their own back-fed output. Nothing may be driven
+// until VLED_SENSE says the panel has its own supply.
+void ArtMatrix::gpio_hiz(void) {
+    FOR_EACH_MATRIX_PIN(GPIO_HIZ_BOTH);
+    GPIO_HIZ_BOTH(pin_clk);
+    GPIO_HIZ_BOTH(pin_stb);
+    GPIO_HIZ_BOTH(pin_oe);
+}
 
-    GPIO_INIT_BOTH(pin_row_a, 0);
-    GPIO_INIT_BOTH(pin_row_b, 0);
-    GPIO_INIT_BOTH(pin_row_c, 0);
-    GPIO_INIT_BOTH(pin_row_d, 0);
-    GPIO_INIT_BOTH(pin_row_e, 0);
-
+void ArtMatrix::gpio_drive(void) {
+    FOR_EACH_MATRIX_PIN(GPIO_INIT_BOTH, 0);
     GPIO_INIT_BOTH(pin_clk, !clk_polarity);
     GPIO_INIT_BOTH(pin_stb, !stb_polarity);
     GPIO_INIT_BOTH(pin_oe, !oe_polarity);
+}
+
+ArtMatrix::ArtMatrix()
+ {
+    apply_gamma_scale(0);
+    gpio_hiz();
+
+    adc_init();
+    adc_gpio_init(ADC_BASE_PIN + ADC_CUR_SENSE);
+    adc_gpio_init(ADC_BASE_PIN + ADC_SENSOR_IN);
+    adc_gpio_init(ADC_BASE_PIN + ADC_VLED_SENSE);
+    adc_set_round_robin((1u << ADC_CUR_SENSE) | (1u << ADC_SENSOR_IN) | (1u << ADC_VLED_SENSE));
+    adc_fifo_setup(true, true, 1, false, false);
+    adc_set_clkdiv(ADC_CLKDIV);
+
+    dma_channel_adc = dma_claim_unused_channel(true);
+    dma_channel_config config_adc = dma_channel_get_default_config(dma_channel_adc);
+    channel_config_set_transfer_data_size(&config_adc, DMA_SIZE_16);
+    channel_config_set_read_increment(&config_adc, false);
+    channel_config_set_write_increment(&config_adc, true);
+    channel_config_set_dreq(&config_adc, DREQ_ADC);
+    dma_channel_configure(dma_channel_adc, &config_adc, adc_buffer, &adc_hw->fifo, ADC_SAMPLES, false);
+
+    adc_capture_start();
 }
 
 void gpio_put_both(uint32_t pin, bool value) {
@@ -247,6 +271,27 @@ void ArtMatrix::stop(irq_handler_t handler) {
 }
 
 ArtMatrix::~ArtMatrix() {
+    adc_run(false);
+
+    if(dma_channel_adc != -1 && dma_channel_is_claimed(dma_channel_adc)) {
+        dma_channel_cleanup(dma_channel_adc);
+        dma_channel_unclaim(dma_channel_adc);
+        dma_channel_adc = -1;
+    }
+}
+
+// The panel isn't started here: power_tick() brings it up once VLED_SENSE
+// reports a supply, and takes it back down to hi-z if that supply goes.
+void ArtMatrix::begin(irq_handler_t handler) {
+    irq_handler = handler;
+}
+
+uint16_t ArtMatrix::get_sensor(void) {
+    return sensor_counts;
+}
+
+bool ArtMatrix::is_powered(void) {
+    return panel_powered;
 }
 
 void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
@@ -267,10 +312,15 @@ void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
         artmatrix_wait_tx_stall(pio_a, sm_row_a);
         artmatrix_wait_tx_stall(pio_b, sm_row_b);
 
-        // Latch row data, pulse output enable for new row.
+        // Latch row data, pulse output enable for new row. Blanking is a zero
+        // width pulse: pulse_loop still runs once, so OEn asserts for a single
+        // 6ns cycle, 0.06% of a frame. Unlike dimming the gamma table it lands
+        // on the next row instead of waiting for a repaint.
+        const uint32_t pulse = blank ? 0 : ((brightness << bit_a) - 4);
+
         // Both row SMs just stalled, so their TX FIFOs are known empty.
-        pio_sm_put(pio_a, sm_row_a, row_a | ((brightness << bit_a) - 4) << 5);
-        pio_sm_put(pio_b, sm_row_b, row_a | ((brightness << bit_a) - 4) << 5);
+        pio_sm_put(pio_a, sm_row_a, row_a | (pulse << 5));
+        pio_sm_put(pio_b, sm_row_b, row_a | (pulse << 5));
 
         row_a++;
 
@@ -336,20 +386,9 @@ void __no_inline_not_in_flash_func(ArtMatrix::update(void)) {
     }
 }
 
-void ArtMatrix::set_brightness(float value) {
-    if(value < 0.0f) value = 0.0f;
-    if(value > 1.0f) value = 1.0f;
-
-    // Equal steps of `value` should look equally spaced, so go via CIE L*
-    // rather than scaling light directly.
-    const float l = value * 100.0f;
-    const float t = (l + 16.0f) / 116.0f;
-    const float light = l > 8.0f ? t * t * t : l / 903.3f;
-
-    // GAMMA_14BIT is linear light, so scaling it is just a multiply. Nothing
-    // about the scan changes, so this can't introduce flicker.
-    const uint32_t scale = (uint32_t)(light * 1024.0f + 0.5f);
-
+// GAMMA_14BIT is linear light, so scaling it is just a multiply. `scale` is
+// 1.10 fixed point. Nothing about the scan changes, so this can't flicker.
+void ArtMatrix::apply_gamma_scale(uint32_t scale) {
     gamma_lut[0] = 0;
     for(uint32_t i = 1u; i < 256u; i++) {
         const uint32_t v = (GAMMA_14BIT[i] * scale + 512) >> 10;
@@ -358,8 +397,151 @@ void ArtMatrix::set_brightness(float value) {
     }
 }
 
-void ArtMatrix::set_full_brightness(bool full) {
-    brightness_next = full ? BRIGHTNESS_MAX : BRIGHTNESS_MIN;
+// Perceptual 0.0 - 1.0. Core1 only: it writes the table update() reads.
+void ArtMatrix::apply_brightness(float value) {
+    // Equal steps of `value` should look equally spaced, so go via CIE L*
+    // rather than scaling light directly.
+    const float l = value * 100.0f;
+    const float t = (l + 16.0f) / 116.0f;
+    float light = l > 8.0f ? t * t * t : l / 903.3f;
+
+    // Take the lowest OEn multiplier whose duty covers the request, since a
+    // higher one only costs refresh rate, then let the gamma scale make up the
+    // shortfall exactly. The coarse steps are 3-14% of light on their own, so
+    // interpolating between them is what keeps a ramp from visibly stepping.
+    uint i = 0;
+    while(i < BRIGHTNESS_STEPS - 1 && OE_DUTY[i] < light) i++;
+    brightness_next = BRIGHTNESS_MIN + i;
+
+    float scale = light / OE_DUTY[i];
+    if(scale > 1.0f) scale = 1.0f;
+
+    apply_gamma_scale((uint32_t)(scale * 1024.0f + 0.5f));
+}
+
+// Any core. Core1's power loop picks this up and ramps toward it.
+void ArtMatrix::set_brightness(float value) {
+    if(value < 0.0f) value = 0.0f;
+    if(value > 1.0f) value = 1.0f;
+    brightness_target = value;
+}
+
+void ArtMatrix::adc_capture_start(void) {
+    adc_run(false);
+    adc_fifo_drain();
+
+    // Round robin resumes from the selected input, so re-selecting here pins
+    // sample i to input (i % 3) for the whole capture. A free-running ring
+    // can't do this: no power of two divides by three, so the mapping would
+    // rotate on every wrap.
+    adc_select_input(ADC_CUR_SENSE);
+
+    dma_channel_set_write_addr(dma_channel_adc, adc_buffer, false);
+    dma_channel_set_trans_count(dma_channel_adc, ADC_SAMPLES, true);
+
+    adc_run(true);
+}
+
+void ArtMatrix::power_up(void) {
+    // back_buffer still holds the last frame at its old scale, and nothing
+    // repaints it until Python next calls update().
+    for(uint32_t i = 0u; i < width * height; i++) back_buffer[i] = 0;
+    apply_gamma_scale(0);
+
+    gpio_drive();
+    start(irq_handler);
+
+    brightness_allowed = 0.0f;
+    brightness_ceiling = 1.0f;
+    brightness_applied = -1.0f;
+    vled_absent_count = 0;
+    blank = false;
+    panel_powered = true;
+}
+
+void ArtMatrix::power_down(void) {
+    if(!panel_powered) return;
+
+    stop(irq_handler);
+    gpio_hiz();
+
+    apply_gamma_scale(0);
+    brightness_allowed = 0.0f;
+    brightness_applied = -1.0f;
+    vled_good_count = 0;
+    blank = true;
+    panel_powered = false;
+}
+
+// Core1. Cheap to call often; the work only happens once a capture lands.
+void ArtMatrix::power_tick(void) {
+    if(dma_channel_is_busy(dma_channel_adc)) return;
+    adc_run(false);
+
+    uint32_t sum[3] = {0, 0, 0};
+    for(uint32_t i = 0u; i < ADC_SAMPLES; i++) sum[i % 3] += adc_buffer[i];
+
+    const uint32_t cur_counts = sum[0] / ADC_PER_INPUT;
+    const uint32_t vled_counts = sum[2] / ADC_PER_INPUT;
+
+    sensor_counts = (sum[1] / ADC_PER_INPUT) << 4; // 12-bit -> u16, as machine.ADC
+
+    if(!panel_powered) {
+        // Debounce a supply that's still coming up.
+        if(vled_counts >= VLED_GOOD_COUNTS) {
+            if(++vled_good_count >= VLED_DEBOUNCE) power_up();
+        } else {
+            vled_good_count = 0;
+        }
+        adc_capture_start();
+        return;
+    }
+
+    if(vled_counts >= VLED_ABSENT_COUNTS) vled_absent_count = 0;
+
+    if(vled_counts < VLED_TRIP_COUNTS) {
+        if(!blank) {
+            // Blank before judging the supply. With the LEDs off an overload
+            // recovers and a removal doesn't, and we can't tell them apart
+            // while we're the thing pulling the rail down. Tearing the PIO
+            // down here instead would unload the rail, read 5V, restart, and
+            // collapse again - a flashing panel.
+            blank = true;
+            brightness_allowed = 0.0f;
+
+            // Don't let the ramp walk straight back into the same sag.
+            brightness_ceiling *= 0.75f;
+        } else if(vled_counts < VLED_ABSENT_COUNTS && ++vled_absent_count >= VLED_DEBOUNCE) {
+            // Still dead with the LEDs off, so the supply is gone rather than
+            // overloaded. Stop driving before we leak into the panel again.
+            power_down();
+        }
+    } else if(vled_counts >= VLED_GOOD_COUNTS) {
+        blank = false;
+
+        if(cur_counts > CUR_BUDGET_COUNTS) {
+            brightness_allowed *= 0.9f;
+        } else if(cur_counts < (CUR_BUDGET_COUNTS - CUR_BUDGET_HYSTERESIS)) {
+            brightness_allowed += BRIGHTNESS_RAMP_STEP;
+            if(brightness_allowed > brightness_ceiling) brightness_allowed = brightness_ceiling;
+
+            // Only earn the ceiling back where the rail has real headroom.
+            // Recovering inside the TRIP..GOOD band would creep into the sag
+            // that cost us the ceiling in the first place, once per second.
+            if(vled_counts >= VLED_HEADROOM_COUNTS) {
+                brightness_ceiling += BRIGHTNESS_CEILING_RECOVER;
+                if(brightness_ceiling > 1.0f) brightness_ceiling = 1.0f;
+            }
+        }
+    }
+
+    const float value = brightness_allowed < brightness_target ? brightness_allowed : brightness_target;
+    if(value != brightness_applied) {
+        apply_brightness(value);
+        brightness_applied = value;
+    }
+
+    adc_capture_start();
 }
 
 }

@@ -102,24 +102,32 @@ void artmatrix_core1_entry() {
     // downstream copy of the handler cannot see it; use the SDK's own.
     multicore_lockout_victim_init();
 
-    artmatrix_obj.artmatrix->start(dma_complete);
+    artmatrix_obj.artmatrix->begin(dma_complete);
 
     multicore_fifo_push_blocking(0); // TODO: handle issues here?
 
-    // artmatrix is now running the display using interrupts on this core.
-    // We can also drive the backlight if requested.
+    // artmatrix runs the display from interrupts on this core, once
+    // power_tick() sees a supply on VLED_SENSE and brings the panel up.
     while (!artmatrix_obj.exit_core1) {
+        artmatrix_obj.artmatrix->power_tick();
+
         if (artmatrix_obj.flip) {
             artmatrix_obj.artmatrix->update();
             artmatrix_obj.flip = false;
             continue;
         }
-        // Core0 __sev()s after setting either flag, and the display DMA IRQ
-        // wakes us regardless, so don't spin on the bus the DMA is using.
-        __wfe();
+
+        if (artmatrix_obj.artmatrix->is_powered()) {
+            // Core0 __sev()s after setting either flag, and the display DMA IRQ
+            // wakes us regardless, so don't spin on the bus the DMA is using.
+            __wfe();
+        } else {
+            // No display DMA to wake us, so keep polling for the supply.
+            sleep_us(500);
+        }
     }
 
-    artmatrix_obj.artmatrix->stop(dma_complete);
+    artmatrix_obj.artmatrix->power_down();
 
     multicore_lockout_victim_deinit();
 
@@ -214,17 +222,18 @@ mp_obj_t artmatrix_set_blocking(mp_obj_t self_in, mp_obj_t blocking_in) {
     return mp_const_none;
 }
 
+// Sets the target only. Core1 owns the gamma table, and ramps toward this as
+// fast as the LED supply will allow.
 mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in) {
     (void)self_in;
-
-    // update() reads the gamma table on core1, so don't rebuild it underneath.
-    while(artmatrix_obj.flip) {
-        mp_event_handle_nowait();
-    };
-
     artmatrix_obj.artmatrix->set_brightness((float)mp_obj_get_float(value_in));
-
     return mp_const_none;
+}
+
+// The SENS header. Core1 owns the ADC, so this is the latest 4ms average.
+mp_obj_t artmatrix_sensor(mp_obj_t self_in) {
+    (void)self_in;
+    return mp_obj_new_int(artmatrix_obj.artmatrix->get_sensor());
 }
 
 mp_obj_t artmatrix_update(mp_obj_t self_in) {

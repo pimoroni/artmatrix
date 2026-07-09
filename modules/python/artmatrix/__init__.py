@@ -27,7 +27,16 @@ builtins.X4 = image.X4
 builtins.display = _artmatrix.artmatrix()
 builtins.screen = image(128, 128, memoryview(display))
 
-builtins.sensor = machine.ADC(board.SENSOR_IN)
+
+# The display driver owns the ADC so it can watch VLED_SENSE and CUR_SENSE
+# without racing us over adc_select_input. It samples the SENS header for us,
+# as a rolling 4ms average rather than an on-demand conversion.
+class _Sensor:
+    def read_u16(self):
+        return display.sensor()
+
+
+builtins.sensor = _Sensor()
 
 
 # LED control
