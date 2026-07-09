@@ -9,7 +9,13 @@ set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest.py)
 
 add_compile_options(-fno-math-errno)   # hardware VSQRT on the M33 FPU (safe: MP math uses isnan/isinf, not errno)
 
-set(MICROPY_C_HEAP_SIZE 4096)
+# Nothing of ours uses the C heap, but libstdc++ mallocs a 1088 byte emergency
+# exception pool from a static ctor, before main(). __StackLimit is __bss_end__
+# plus this, and nano-malloc extends the break to the next 4k page, so it can
+# need 1112 + 4095 bytes depending on where .bss happens to end. At 4096 the
+# boot panics with "Out of memory" whenever (__bss_end__ & 0xfff) > 2984, which
+# makes any change to a static's size a coin flip. 8192 always covers it.
+set(MICROPY_C_HEAP_SIZE 8192)
 
 if(NOT DEFINED MICROPY_HW_FLASH_STORAGE_BYTES)
     set(MICROPY_HW_FLASH_STORAGE_BYTES 13631488)  # 16 * 1024 * 1024 - 1MB for ROMFS and 2MB for LittleFS
