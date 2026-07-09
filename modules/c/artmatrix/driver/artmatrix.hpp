@@ -17,46 +17,71 @@ const uint ROWSEL_N_PINS = 5;
 const uint BIT_DEPTH = 10;
 
 /*
-10-bit gamma table, allowing us to gamma correct our 8-bit colour values up
-to 10-bit without losing dynamic range.
-
-Calculated with the following Python code:
-
-gamma_lut = [int(round(1024 * (x / (256 - 1)) ** 2.2)) for x in range(256)]
-
-Post-processed to enforce a minimum difference of 1 between adjacent values,
-and no leading zeros:
-
-for i in range(1, len(gamma_lut)):
-	if gamma_lut[i] <= gamma_lut[i - 1]:
-		gamma_lut[i] = gamma_lut[i - 1] + 1
-
-Save ~0.12ms per flip by keeping GAMMA_10BIT in SRAM.
+OEn pulse width multiplier. Bitplane 0's pulse is `brightness - 4` cycles, so
+anything below 5 underflows the 27-bit width field and lights the whole row.
+The ceiling trades refresh rate for duty cycle: 5 gives ~31% at ~318Hz, 16
+gives ~65% at ~208Hz. Only ~2.1x, since the low bitplanes are bound by the
+data shift-out, not by OEn.
 */
-static constexpr uint16_t __not_in_flash("gamma_table") GAMMA_10BIT[256] = {
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
-    48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-    64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
-    80, 82, 84, 87, 89, 91, 94, 96, 98, 101, 103, 106, 109, 111, 114, 117,
-    119, 122, 125, 128, 130, 133, 136, 139, 142, 145, 148, 151, 155, 158, 161, 164,
-    167, 171, 174, 177, 181, 184, 188, 191, 195, 198, 202, 206, 209, 213, 217, 221,
-    225, 228, 232, 236, 240, 244, 248, 252, 257, 261, 265, 269, 274, 278, 282, 287,
-    291, 295, 300, 304, 309, 314, 318, 323, 328, 333, 337, 342, 347, 352, 357, 362,
-    367, 372, 377, 382, 387, 393, 398, 403, 408, 414, 419, 425, 430, 436, 441, 447,
-    452, 458, 464, 470, 475, 481, 487, 493, 499, 505, 511, 517, 523, 529, 535, 542,
-    548, 554, 561, 567, 573, 580, 586, 593, 599, 606, 613, 619, 626, 633, 640, 647,
-    653, 660, 667, 674, 681, 689, 696, 703, 710, 717, 725, 732, 739, 747, 754, 762,
-    769, 777, 784, 792, 800, 807, 815, 823, 831, 839, 847, 855, 863, 871, 879, 887,
-    895, 903, 912, 920, 928, 937, 945, 954, 962, 971, 979, 988, 997, 1005, 1014, 1023
+const uint BRIGHTNESS_MIN = 5;
+const uint BRIGHTNESS_MAX = 16;
+
+/*
+14-bit gamma table, gamma correcting our 8-bit colour values into four bits
+more than the panel can show. update() dithers the surplus away with a 4x4
+ordered pattern, so we get those four bits back as spatial resolution.
+
+The panel only has 10 bitplanes and can't gain more: the PIO eats one 32-bit
+RGB word per pixel, and 3 x 11 bits doesn't fit. Bit depth is also expensive,
+since BCM frame time is dominated by the MSB's OEn pulse - 14 real bitplanes
+would drop the refresh rate from ~318Hz to ~56Hz.
+
+Those four bits are what set_brightness() dims into. A 10-bit table has none
+to spare: gamma 2.2 rises by less than one code per step below input 42, so a
+10-bit table has to be flattened onto a ramp there, and any scaling crushes
+it. At 14 bits the curve is monotone on its own, and scaling to 1/16 still
+resolves 233 of 256 levels (against 65 for a 10-bit table).
+
+Calculated with:
+
+top = 1023 << 4  # (top + 15) >> 4 == 1023, so the dither can't overflow
+gamma_lut = [int(round(top * (x / (256 - 1)) ** 2.2)) for x in range(256)]
+
+Floored at 1 for non-zero inputs. The dither resolves 1/16 of an LSB, so a 1
+here shows as one lit pixel in sixteen rather than going black.
+
+This is the reference table only; set_brightness() scales it into the SRAM
+copy that update() actually reads.
+*/
+static constexpr uint16_t GAMMA_14BIT[256] = {
+    0, 1, 1, 1, 2, 3, 4, 6, 8, 10, 13, 16,
+    20, 23, 28, 32, 37, 42, 48, 54, 61, 67, 75, 82,
+    90, 99, 108, 117, 127, 137, 148, 159, 170, 182, 194, 207,
+    221, 234, 248, 263, 278, 294, 310, 326, 343, 360, 378, 396,
+    415, 435, 454, 475, 495, 516, 538, 560, 583, 606, 630, 654,
+    678, 704, 729, 755, 782, 809, 837, 865, 894, 923, 952, 983,
+    1013, 1045, 1076, 1109, 1141, 1175, 1208, 1243, 1278, 1313, 1349, 1385,
+    1422, 1460, 1498, 1537, 1576, 1615, 1656, 1696, 1738, 1779, 1822, 1865,
+    1908, 1952, 1997, 2042, 2087, 2134, 2180, 2228, 2276, 2324, 2373, 2422,
+    2473, 2523, 2574, 2626, 2678, 2731, 2785, 2839, 2893, 2949, 3004, 3061,
+    3117, 3175, 3233, 3292, 3351, 3410, 3471, 3532, 3593, 3655, 3718, 3781,
+    3845, 3909, 3974, 4040, 4106, 4172, 4240, 4308, 4376, 4445, 4515, 4585,
+    4656, 4727, 4799, 4872, 4945, 5019, 5093, 5168, 5244, 5320, 5397, 5474,
+    5552, 5631, 5710, 5790, 5870, 5951, 6033, 6115, 6198, 6282, 6366, 6450,
+    6536, 6622, 6708, 6795, 6883, 6971, 7060, 7150, 7240, 7331, 7422, 7514,
+    7607, 7700, 7794, 7889, 7984, 8080, 8176, 8273, 8371, 8469, 8568, 8667,
+    8767, 8868, 8970, 9072, 9174, 9278, 9381, 9486, 9591, 9697, 9803, 9911,
+    10018, 10127, 10236, 10345, 10456, 10566, 10678, 10790, 10903, 11016, 11131, 11245,
+    11361, 11477, 11593, 11711, 11829, 11947, 12067, 12186, 12307, 12428, 12550, 12673,
+    12796, 12919, 13044, 13169, 13295, 13421, 13548, 13676, 13804, 13933, 14063, 14193,
+    14324, 14456, 14588, 14721, 14855, 14989, 15124, 15260, 15396, 15533, 15670, 15808,
+    15947, 16087, 16227, 16368,
 };
 
 struct Pixel {
     uint32_t color;
     constexpr Pixel() : color(0) {};
     constexpr Pixel(uint32_t color) : color(color) {};
-    constexpr Pixel(uint8_t r, uint8_t g, uint8_t b) : color((GAMMA_10BIT[b] << 20) | (GAMMA_10BIT[g] << 10) | GAMMA_10BIT[r]) {};
 };
 
 const uint32_t width = 128;
@@ -94,7 +119,10 @@ class ArtMatrix {
     uint data_prog_offs_b = 0;
     uint row_prog_offs_b = 0;
 
-    const uint brightness = 5;
+    // Owned by the DMA IRQ; latched from brightness_next at the frame boundary
+    // so a frame never mixes bitplane weights.
+    uint brightness = BRIGHTNESS_MIN;
+    volatile uint brightness_next = BRIGHTNESS_MIN;
 
     // Top half of display - 16 rows on a 32x32 panel
     uint pin_r0 = 0;
@@ -132,6 +160,9 @@ class ArtMatrix {
 
     uint32_t* get_framebuffer(void);
     void update(void);
+
+    void set_brightness(float value);
+    void set_full_brightness(bool full);
 
     };
 }

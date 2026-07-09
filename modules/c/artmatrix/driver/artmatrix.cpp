@@ -15,11 +15,26 @@ namespace pimoroni {
 static uint32_t __attribute__ ((aligned (4))) front_buffer[width * height];
 static Pixel __attribute__ ((aligned (4))) back_buffer[width * height];
 
+// GAMMA_14BIT scaled by set_brightness(). Save ~0.12ms per flip by keeping it
+// in SRAM.
+static uint16_t __not_in_flash("gamma_table") gamma_lut[256];
+
+// 4x4 ordered dither, 0..15, spending the four bits of gamma_lut that the
+// panel's 10 bitplanes can't show.
+static const uint8_t __not_in_flash("bayer") BAYER_4X4[16] = {
+     0,  8,  2, 10,
+    12,  4, 14,  6,
+     3, 11,  1,  9,
+    15,  7, 13,  5
+};
+
 #define GPIO_INIT_BOTH(pin, initial) gpio_init(pin); gpio_set_function(pin, GPIO_FUNC_SIO); gpio_set_dir(pin, true); gpio_put(pin, initial); \
                                      gpio_init(pin + 30); gpio_set_function(pin + 30, GPIO_FUNC_SIO); gpio_set_dir(pin + 30, true); gpio_put(pin + 30, initial)
 
 ArtMatrix::ArtMatrix()
  {
+    set_brightness(1.0f);
+
     // Set up allllll the GPIO
     GPIO_INIT_BOTH(pin_r0, 0);
     GPIO_INIT_BOTH(pin_g0, 0);
@@ -264,6 +279,9 @@ void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
             bit_a++;
             if (bit_a == BIT_DEPTH) {
                 bit_a = 0;
+                // Frame boundary. Picking up a new multiplier part-way through
+                // would give this frame a mismatched set of bitplane weights.
+                brightness = brightness_next;
             }
             artmatrix_data_rgb888_set_shift(pio_a, 0, data_prog_offs_a, bit_a);
             artmatrix_data_rgb888_set_shift(pio_b, 0, data_prog_offs_b, bit_a);
@@ -286,8 +304,13 @@ uint32_t* ArtMatrix::get_framebuffer(void) {
     return front_buffer;
 }
 
-static inline uint32_t gamma_pack(uint32_t rgb) {
-    return (GAMMA_10BIT[rgb & 0xff] << 0) | (GAMMA_10BIT[(rgb >> 8) & 0xff] << 10) | (GAMMA_10BIT[(rgb >> 16) & 0xff] << 20);
+// gamma_lut holds 14 bits; the panel shows the top 10. `d` is 0..15, so the
+// discarded bits round up in one pixel of the 4x4 cell per unit. Peak entry is
+// 1023 << 4, so (16368 + 15) >> 4 == 1023 and this can't overflow its field.
+static inline uint32_t gamma_pack(uint32_t rgb, uint32_t d) {
+    return (((gamma_lut[rgb & 0xff] + d) >> 4) << 0)
+         | (((gamma_lut[(rgb >> 8) & 0xff] + d) >> 4) << 10)
+         | (((gamma_lut[(rgb >> 16) & 0xff] + d) >> 4) << 20);
 }
 
 void __no_inline_not_in_flash_func(ArtMatrix::update(void)) {
@@ -296,19 +319,47 @@ void __no_inline_not_in_flash_func(ArtMatrix::update(void)) {
         // We are swapping X and Y to achieve a 90 degree rotation
         // Mirror along the Y axis (top to bottom)
         const uint32_t sx = height - 1 - y;
+        const uint8_t *dither = &BAYER_4X4[(y & 3) << 2];
 
         // Source x picks the panel, so walk each half separately. Within a
         // half the destination just advances one row (`width`) per pixel.
+        // width / 2 is a multiple of 4, so the dither phase carries over.
         Pixel *b = &back_buffer[panel_b_offset + sx];
         for(uint32_t x = 0u; x < width / 2; x++, b += width) {
-            *b = gamma_pack(*p++);
+            *b = gamma_pack(*p++, dither[x & 3]);
         }
 
         Pixel *a = &back_buffer[sx];
         for(uint32_t x = 0u; x < width / 2; x++, a += width) {
-            *a = gamma_pack(*p++);
+            *a = gamma_pack(*p++, dither[x & 3]);
         }
     }
+}
+
+void ArtMatrix::set_brightness(float value) {
+    if(value < 0.0f) value = 0.0f;
+    if(value > 1.0f) value = 1.0f;
+
+    // Equal steps of `value` should look equally spaced, so go via CIE L*
+    // rather than scaling light directly.
+    const float l = value * 100.0f;
+    const float t = (l + 16.0f) / 116.0f;
+    const float light = l > 8.0f ? t * t * t : l / 903.3f;
+
+    // GAMMA_14BIT is linear light, so scaling it is just a multiply. Nothing
+    // about the scan changes, so this can't introduce flicker.
+    const uint32_t scale = (uint32_t)(light * 1024.0f + 0.5f);
+
+    gamma_lut[0] = 0;
+    for(uint32_t i = 1u; i < 256u; i++) {
+        const uint32_t v = (GAMMA_14BIT[i] * scale + 512) >> 10;
+        // Hold non-zero inputs above black; the dither can still show a 1.
+        gamma_lut[i] = (v == 0 && scale != 0) ? 1 : v;
+    }
+}
+
+void ArtMatrix::set_full_brightness(bool full) {
+    brightness_next = full ? BRIGHTNESS_MAX : BRIGHTNESS_MIN;
 }
 
 }

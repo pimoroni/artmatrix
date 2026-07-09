@@ -214,6 +214,19 @@ mp_obj_t artmatrix_set_blocking(mp_obj_t self_in, mp_obj_t blocking_in) {
     return mp_const_none;
 }
 
+mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in) {
+    (void)self_in;
+
+    // update() reads the gamma table on core1, so don't rebuild it underneath.
+    while(artmatrix_obj.flip) {
+        mp_event_handle_nowait();
+    };
+
+    artmatrix_obj.artmatrix->set_brightness((float)mp_obj_get_float(value_in));
+
+    return mp_const_none;
+}
+
 mp_obj_t artmatrix_update(mp_obj_t self_in) {
     (void)self_in;
     //artmatrix_obj.artmatrix->update();
