@@ -5,6 +5,9 @@
 
 #define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_C)
 
+#define MICROPY_GC_NO_SCAN   (1)   // big PSRAM GC win; NO_CLEAR benefit comes with it
+#define MICROPY_HW_VM_IN_RAM (1)   // ~+20% interp, costs ~6 KB SRAM (.data)
+
 // Set up networking.
 #define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT     "ArtMatrix"
 
@@ -32,12 +35,8 @@ int mp_hal_is_pin_reserved(int n);
 // Skip default pins
 #define MICROPY_HW_UART_NO_DEFAULT_PINS         (1)
 
-// Enable PSRAM
-#define MICROPY_HW_ENABLE_PSRAM                 (1)
+// Don't use SRAM for MicroPython heap
 #define MICROPY_GC_SPLIT_HEAP                   (0)
-
-// Alias the chip select pin specified by presto.h
-#define MICROPY_HW_PSRAM_CS_PIN                 PIMORONI_ARTMATRIX_PSRAM_CS_PIN
 
 #define MICROPY_PY_THREAD                       (0)
 

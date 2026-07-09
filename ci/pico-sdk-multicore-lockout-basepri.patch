@@ -1,0 +1,60 @@
+diff --git a/src/rp2_common/pico_multicore/multicore.c b/src/rp2_common/pico_multicore/multicore.c
+index 759d31ea..9731a8b7 100644
+--- a/src/rp2_common/pico_multicore/multicore.c
++++ b/src/rp2_common/pico_multicore/multicore.c
+@@ -222,6 +222,29 @@ void multicore_launch_core1_raw(void (*entry)(void), uint32_t *sp, uint32_t vect
+     irq_set_enabled(irq_num, enabled);
+ }
+ 
++// Pimoroni: on RP2350 (Arm) raise BASEPRI rather than masking all interrupts, so that
++// interrupts above BW_LOCKOUT_BASEPRI keep running on the locked-out core. ArtMatrix
++// refreshes its LED matrix from DMA_IRQ_1 at PICO_HIGHEST_IRQ_PRIORITY, which would
++// otherwise stall for the whole of a flash erase/program. Such handlers must run from
++// SRAM and touch neither flash nor PSRAM while XIP is disabled.
++#if !PICO_RP2040 && PICO_ARM
++#define BW_LOCKOUT_BASEPRI 0x60
++
++__force_inline static uint32_t bw_get_basepri(void) {
++    uint32_t r;
++    pico_default_asm_volatile ("mrs %0, BASEPRI" : "=r" (r) :: "memory");
++    return r;
++}
++
++__force_inline static void bw_set_basepri_max(uint32_t v) {
++    pico_default_asm_volatile ("msr BASEPRI_MAX, %0" :: "r" (v) : "memory");
++}
++
++__force_inline static void bw_set_basepri(uint32_t v) {
++    pico_default_asm_volatile ("msr BASEPRI, %0" :: "r" (v) : "memory");
++}
++#endif
++
+ // A non-zero initialisation value is used in order to reduce the chance of
+ // entering the lock handler on bootup due to a 0-word being present in the FIFO
+ static volatile uint32_t lockout_request_id = 0x73a8831eu;
+@@ -235,14 +258,25 @@ static void __isr __not_in_flash_func(multicore_lockout_handler)(void) {
+         uint32_t request_id = sio_hw->fifo_rd;
+         if (request_id == lockout_request_id) {
+             // valid lockout request received
++            #if !PICO_RP2040 && PICO_ARM
++            uint32_t save = bw_get_basepri();
++            bw_set_basepri_max(BW_LOCKOUT_BASEPRI);
++            __isb();
++            #else
+             uint32_t save = save_and_disable_interrupts();
++            #endif
+             multicore_fifo_push_blocking_inline(request_id);
+             // wait for the lockout to expire
+             while (request_id == lockout_request_id) {
+                 // when lockout_request_id is updated, the other CPU core calls __sev
+                 __wfe();
+             }
++            #if !PICO_RP2040 && PICO_ARM
++            bw_set_basepri(save);
++            __isb();
++            #else
+             restore_interrupts_from_disabled(save);
++            #endif
+         }
+     }
+ }

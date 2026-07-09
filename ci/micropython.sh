@@ -1,12 +1,14 @@
 export TERM=${TERM:="xterm-256color"}
 
-# cache buster: 2026-03-03
+# cache buster: 2026-07-09
 
 MICROPYTHON_FLAVOUR="pimoroni"
-MICROPYTHON_VERSION="bw-1.28.0-2"
+# bw-1.28.0-3 without the USB MSC additions, which reference msc_disk.c symbols
+# that only exist when CFG_TUD_MSC is set. ArtMatrix builds with MSC off.
+MICROPYTHON_VERSION="bw-1.28.0-3-artmatrix"
 
 PIMORONI_PICO_FLAVOUR="pimoroni"
-PIMORONI_PICO_VERSION="v1.28.0"
+PIMORONI_PICO_VERSION="37a1b6500f77924b2a3287009734bb24d4809bf1"
 
 PIMORONI_PICOVECTOR_VERSION="main"
 
@@ -41,6 +43,16 @@ function ci_pimoroni_picovector_clone {
     git -C "$CI_BUILD_ROOT/picovector-micropython" submodule update --init
 }
 
+function ci_apply_patch {
+    TREE=$1
+    PATCH="$CI_PROJECT_ROOT/ci/$2"
+    if ! git -C "$TREE" apply "$PATCH"; then
+        log_warning "Failed to apply $2 to $TREE"
+        return 1
+    fi
+    log_inform "Applied $2"
+}
+
 function ci_micropython_clone {
     log_inform "Using MicroPython $MICROPYTHON_FLAVOUR/$MICROPYTHON_VERSION"
     git clone https://github.com/$MICROPYTHON_FLAVOUR/micropython "$CI_BUILD_ROOT/micropython"
@@ -52,7 +64,13 @@ function ci_micropython_clone {
     git -C "$CI_BUILD_ROOT/micropython" submodule update --init lib/micropython-lib
     git -C "$CI_BUILD_ROOT/micropython" submodule update --init lib/tinyusb
     git -C "$CI_BUILD_ROOT/micropython" submodule update --init lib/btstack
-    git -C "$CI_BUILD_ROOT/micropython/lib/pico-sdk" apply "$CI_PROJECT_ROOT/ci/pico-sdk-crt0-startup-rosc.patch"
+
+    # A patch that stops applying after a version bump must fail the build, not be silently
+    # skipped. Dropping the basepri patch is how ArtMatrix lost display-during-flash.
+    ci_apply_patch "$CI_BUILD_ROOT/micropython" micropython-rp2-flash-basepri.patch || return $?
+    ci_apply_patch "$CI_BUILD_ROOT/micropython/lib/pico-sdk" pico-sdk-crt0-startup-rosc.patch || return $?
+    ci_apply_patch "$CI_BUILD_ROOT/micropython/lib/pico-sdk" pico-sdk-multicore-lockout-basepri.patch || return $?
+    ci_apply_patch "$CI_BUILD_ROOT/micropython/lib/cyw43-driver" cyw43-driver-bounded-auth-retry.patch || return $?
 }
 
 function ci_tools_clone {
@@ -81,15 +99,19 @@ function ci_apt_install_build_deps {
 
 function ci_install_build_deps {
     ci_apt_install_build_deps
-    python3 -m pip install littlefs-python==0.12.0
+}
+
+function ci_python_prepare {
+    python3 -m pip install -r "${CI_BUILD_ROOT}/micropython/tools/mpremote/requirements.txt"
+    python3 -m pip install -r "${CI_PROJECT_ROOT}/ci/requirements.txt"
 }
 
 function ci_prepare_all {
-    ci_tools_clone
-    ci_micropython_clone
-    ci_pimoroni_pico_clone
-    ci_pimoroni_picovector_clone
-    ci_micropython_build_mpy_cross
+    ci_tools_clone || return $?
+    ci_micropython_clone || return $?
+    ci_pimoroni_pico_clone || return $?
+    ci_pimoroni_picovector_clone || return $?
+    ci_micropython_build_mpy_cross || return $?
 }
 
 function ci_debug {
@@ -158,8 +180,20 @@ function ci_cmake_build {
 
     BUILD_DIR="$CI_BUILD_ROOT/build-$BOARD"
     ccache --zero-stats || true
-    cmake --build $BUILD_DIR -j 2
+    cmake --build $BUILD_DIR -j 2 > "$BUILD_DIR/build.log" 2>&1
+    BUILD_STATUS=$?
+    cat "$BUILD_DIR/build.log"
+    [ $BUILD_STATUS -eq 0 ] || return $BUILD_STATUS
     ccache --show-stats || true
+
+    # ld only warns when a memory region gets a bogus length (e.g. a board that forgets
+    # MICROPY_HW_FLASH_STORAGE_BYTES in mpconfigboard.cmake). The link "succeeds" and
+    # produces a UF2 that bricks the board. Treat it as fatal.
+    if grep -q "invalid length for memory region" "$BUILD_DIR/build.log"; then
+        log_warning "Linker reported an invalid memory region length; firmware would be mislinked."
+        grep "invalid length for memory region" "$BUILD_DIR/build.log"
+        return 1
+    fi
 
     if [ -z ${CI_RELEASE_FILENAME+x} ]; then
         CI_RELEASE_FILENAME=$BOARD

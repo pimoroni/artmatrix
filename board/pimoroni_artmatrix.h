@@ -11,10 +11,10 @@
 
 // This header may be included by other board headers as "boards/pimoroni_artmatrix.h"
 
-// pico_cmake_set PICO_PLATFORM=rp2350
-
 #ifndef _BOARDS_PIMORONI_ARTMATRIX_H
 #define _BOARDS_PIMORONI_ARTMATRIX_H
+
+pico_board_cmake_set(PICO_PLATFORM, rp2350)
 
 // --- BOARD SPECIFIC ---
 #define PIMORONI_ARTMATRIX_PSRAM_CS_PIN (47)
@@ -25,6 +25,32 @@
 
 #define PICO_PANIC_FUNCTION mp_pico_panic
 
+// BW_VREG_VOLTAGE is applied by the crt0 patch before the clock boost, so the
+// core is already at voltage by the time the PLL comes up.
+
+// 399 MHz - Untested on ArtMatrix.
+// ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 399
+/*
+#define PLL_SYS_REFDIV   (1)
+#define PLL_SYS_VCO_FREQ_HZ (1596000000)
+#define PLL_SYS_POSTDIV1 (4)
+#define PLL_SYS_POSTDIV2 (1)
+#define SYS_CLK_HZ       (399000000)
+#define BW_VREG_VOLTAGE  (0b01111)  // 1.30V
+*/
+
+// 266 MHz - Untested on ArtMatrix. On Tufty this was the maximum before a drop
+// in PSRAM freq; not verified here.
+// ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 266
+/*
+#define PLL_SYS_REFDIV   (1)
+#define PLL_SYS_VCO_FREQ_HZ (1596000000)
+#define PLL_SYS_POSTDIV1 (6)
+#define PLL_SYS_POSTDIV2 (1)
+#define SYS_CLK_HZ       (266000000)
+#define BW_VREG_VOLTAGE  (0b01101)  // 1.20V
+*/
+
 // 250 MHz - Working, but not tested on enough boards to fully verify.
 // ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 250
 #define PLL_SYS_REFDIV   (1)
@@ -32,6 +58,7 @@
 #define PLL_SYS_POSTDIV1 (6)
 #define PLL_SYS_POSTDIV2 (1)
 #define SYS_CLK_HZ       (250000000)
+#define BW_VREG_VOLTAGE  (0b01101)  // 1.20V
 
 // 200 MHz - Most of our testing was done at 200MHz.
 // ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 200
@@ -41,6 +68,7 @@
 #define PLL_SYS_POSTDIV1 (6)
 #define PLL_SYS_POSTDIV2 (1)
 #define SYS_CLK_HZ       (200000000)
+#define BW_VREG_VOLTAGE  (0b01011)  // 1.10V
 */
 
 // Support 250MHz if user manually overclocks
@@ -94,9 +122,20 @@
 #define PICO_FLASH_SPI_CLKDIV 2
 #endif
 
-// pico_cmake_set_default PICO_FLASH_SIZE_BYTES = (16 * 1024 * 1024)
+pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, (16 * 1024 * 1024))
 #ifndef PICO_FLASH_SIZE_BYTES
 #define PICO_FLASH_SIZE_BYTES (16 * 1024 * 1024)
+#endif
+
+// --- PSRAM ---
+
+#ifndef PICO_PSRAM_CS_PIN
+#define PICO_PSRAM_CS_PIN (PIMORONI_ARTMATRIX_PSRAM_CS_PIN)
+#endif
+
+pico_board_cmake_set_default(PICO_PSRAM_SIZE_BYTES, (8 * 1024 * 1024))
+#ifndef PICO_PSRAM_SIZE_BYTES
+#define PICO_PSRAM_SIZE_BYTES (8 * 1024 * 1024)
 #endif
 
 // Drive high to force power supply into PWM mode (lower ripple on 3V3 at light loads)
@@ -109,6 +148,7 @@
 // There is an example in adc/read_vsys in pico-examples.
 // no PICO_VSYS_PIN
 
+pico_board_cmake_set_default(PICO_RP2350_A2_SUPPORTED, 1)
 #ifndef PICO_RP2350_A2_SUPPORTED
 #define PICO_RP2350_A2_SUPPORTED 1
 #endif

@@ -1,0 +1,78 @@
+diff --git a/ports/rp2/rp2_flash.c b/ports/rp2/rp2_flash.c
+index d030b7886..0d936a7aa 100644
+--- a/ports/rp2/rp2_flash.c
++++ b/ports/rp2/rp2_flash.c
+@@ -39,6 +39,30 @@
+ #else
+ #include "hardware/structs/ssi.h"
+ #endif
++#include "hardware/irq.h"
++
++// Pimoroni: raise BASEPRI rather than masking all interrupts across the flash critical
++// section, so that interrupts above BW_FLASH_BASEPRI keep running. ArtMatrix refreshes
++// its LED matrix from DMA_IRQ_1 at PICO_HIGHEST_IRQ_PRIORITY. Such handlers must run
++// from SRAM and touch neither flash nor PSRAM while XIP is disabled: use a dedicated
++// (not shared) handler marked __not_in_flash_func, with the DMA triggers inlined.
++#ifdef PICO_RP2350
++#define BW_FLASH_BASEPRI 0x60
++
++__force_inline static uint32_t bw_get_basepri(void) {
++    uint32_t r;
++    pico_default_asm_volatile ("mrs %0, BASEPRI" : "=r" (r) :: "memory");
++    return r;
++}
++
++__force_inline static void bw_set_basepri_max(uint32_t v) {
++    pico_default_asm_volatile ("msr BASEPRI_MAX, %0" :: "r" (v) : "memory");
++}
++
++__force_inline static void bw_set_basepri(uint32_t v) {
++    pico_default_asm_volatile ("msr BASEPRI, %0" :: "r" (v) : "memory");
++}
++#endif
+ 
+ #define BLOCK_SIZE_BYTES (FLASH_SECTOR_SIZE)
+ 
+@@ -172,6 +196,11 @@ static uint32_t begin_critical_flash_section(void) {
+         multicore_lockout_start_blocking();
+     }
+     uint32_t state = save_and_disable_interrupts();
++    #ifdef PICO_RP2350
++    uint32_t base_pri = bw_get_basepri();
++    bw_set_basepri_max(BW_FLASH_BASEPRI);
++    __isb();
++    #endif
+ 
+     #if MICROPY_HW_ENABLE_PSRAM
+     // We're about to invalidate the XIP cache, clean it first to commit any dirty writes to PSRAM
+@@ -184,15 +213,30 @@ static uint32_t begin_critical_flash_section(void) {
+     }
+     #endif
+ 
++    #ifdef PICO_RP2350
++    // Interrupts above BW_FLASH_BASEPRI stay live; BASEPRI is the saved state.
++    restore_interrupts(state);
++    return base_pri;
++    #else
+     return state;
++    #endif
+ }
+ 
+ static void end_critical_flash_section(uint32_t state) {
+     // The ROM function to program flash will have reset the flash timing to
+     // defaults. (PSRAM timing is restored automatically by the SDK's flash
+     // routines via the QMI CS1 setup callback registered by psram_reinitialize.)
++    #ifdef PICO_RP2350
++    // For RP2350 "state" is the saved BASEPRI, not the PRIMASK state.
++    uint32_t interrupt_state = save_and_disable_interrupts();
++    bw_set_basepri(state);
++    __isb();
++    rp2_flash_set_timing_internal(clock_get_hz(clk_sys));
++    restore_interrupts(interrupt_state);
++    #else
+     rp2_flash_set_timing_internal(clock_get_hz(clk_sys));
+     restore_interrupts(state);
++    #endif
+     if (use_multicore_lockout()) {
+         multicore_lockout_end_blocking();
+     }
