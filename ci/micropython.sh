@@ -14,7 +14,6 @@ PIMORONI_PICOVECTOR_VERSION="main"
 
 PY_DECL_VERSION="v0.0.5"
 DIR2UF2_VERSION="v0.1.0"
-FFSMAKE_VERSION="v0.0.3"
 
 
 function log_success {
@@ -77,14 +76,6 @@ function ci_tools_clone {
     mkdir -p "$CI_BUILD_ROOT/tools"
     git clone https://github.com/gadgetoid/py_decl -b "$PY_DECL_VERSION" "$CI_BUILD_ROOT/tools/py_decl"
     git clone https://github.com/gadgetoid/dir2uf2 -b "$DIR2UF2_VERSION" "$CI_BUILD_ROOT/tools/dir2uf2"
-    git clone https://github.com/gadgetoid/ffsmake -b "$FFSMAKE_VERSION" "$CI_BUILD_ROOT/tools/ffsmake" --recursive
-
-    # Build FFSMake utility
-    FFSMAKE_DIR="$CI_BUILD_ROOT/tools/ffsmake"
-    # git apply --directory="$FFSMAKE_DIR/oofatfs" "$FFSMAKE_DIR/n_fats.patch"
-    mkdir -p "$FFSMAKE_DIR/build"
-    cmake -S "$FFSMAKE_DIR" -B "$FFSMAKE_DIR/build"
-    cmake --build "$FFSMAKE_DIR/build"
 }
 
 function ci_micropython_build_mpy_cross {
