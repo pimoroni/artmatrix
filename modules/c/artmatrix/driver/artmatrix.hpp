@@ -240,6 +240,7 @@ class ArtMatrix {
     float last_headroom_v = 0.0f;
     float last_headroom_i = 0.0f;
     volatile float brightness_target = 1.0f; // written by core0
+    volatile bool force_light = false;       // written by core0
     float brightness_allowed = 0.0f;         // core1, LIGHT the supply will hold
     float brightness_applied = -1.0f;
 
@@ -327,6 +328,7 @@ class ArtMatrix {
 
     void set_brightness(float value);
     void set_current_limit(float amps);
+    void set_force_on(bool force);
     uint16_t get_sensor(void);
 
     // Raw servo state, so the operating point can be inspected from Python

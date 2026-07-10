@@ -487,6 +487,22 @@ void ArtMatrix::apply_brightness(float light) {
     apply_gamma_scale((uint32_t)(scale * 1024.0f + 0.5f));
 }
 
+/*
+Any core. Ignore the servo's cap and drive at whatever set_brightness() asks
+for, so a panel that has mis-learned its limits can still be seen and debugged.
+
+Bypasses the brightness cap and nothing else: the trip still blanks on a rail
+that collapses, and the panel still refuses to drive until VLED_SENSE says a
+supply is there. The worst this can do is make the display flash, not damage it.
+
+The servo keeps running underneath, so its gains stay learned and power_stats()
+stays meaningful, and clearing the flag resumes from a sane brightness rather
+than slamming down to a stale one.
+*/
+void ArtMatrix::set_force_on(bool force) {
+    force_light = force;
+}
+
 // Any core. How much the panel may draw in total, LEDs and idle together.
 // Defaults to the ceiling, so this only ever lowers it - for a supply that is
 // weaker than the one we ship with. The load switch limits at 3.3A whatever is
@@ -753,7 +769,9 @@ void ArtMatrix::power_tick(void) {
 
     // brightness_allowed is light; the target the user set is perceptual.
     const float target_light = perceptual_to_light(brightness_target);
-    const float value = brightness_allowed < target_light ? brightness_allowed : target_light;
+
+    float value = target_light;
+    if(!force_light && brightness_allowed < value) value = brightness_allowed;
 
     if(value != brightness_applied) {
         apply_brightness(value);

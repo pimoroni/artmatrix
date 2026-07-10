@@ -247,6 +247,14 @@ mp_obj_t artmatrix_power_stats(mp_obj_t self_in) {
     return mp_obj_new_tuple(11, out);
 }
 
+// display.force_on() to override the servo's brightness cap, force_on(False) to
+// hand control back. Does not override the brownout trip or the VLED gate.
+mp_obj_t artmatrix_force_on(size_t n_args, const mp_obj_t *args) {
+    const bool force = n_args < 2 || mp_obj_is_true(args[1]);
+    artmatrix_obj.artmatrix->set_force_on(force);
+    return mp_const_none;
+}
+
 // Total panel draw allowed, in amps. Clamped to 3.0A: the load switch limits at
 // 3.3A whatever the supply can deliver.
 mp_obj_t artmatrix_set_current_limit(mp_obj_t self_in, mp_obj_t amps_in) {
