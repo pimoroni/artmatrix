@@ -4,6 +4,21 @@ body {
   background: linear-gradient(to bottom, #171717, #343434);
 }
 
+/* provisioning: single-column card, touch-friendly, no iOS focus zoom */
+#wifi_details {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+#wifi_details input {
+  font-size: max(16px, 1rem);   /* < 16px makes iOS zoom on focus */
+  min-height: 44px;
+}
+#wifi_details button,
+#wifi_details ul.picker > li {
+  min-height: 44px;
+}
+
 #all_plugins {
   list-style: none;
   padding: 0;
@@ -43,9 +58,12 @@ body {
 #loading_networks_message >div {color: var(--grey);}
 #loading_networks_message >svg {stroke: var(--pico-primary-hover-background); width: 10rem; max-width: 60%; margin: 0 auto;}
 ul.picker {display: grid; grid-gap: 1rem; grid-template-columns: 1fr; margin: 1rem 0; list-style-type: none; padding: 0;}
-ul.picker >li {opacity: 0.3; font-weight: bold; background-color: var(--pico-background-color); color: white; margin: 0; padding: 1rem 2rem; border-radius: var(--pico-border-radius); cursor: pointer;}
+ul.picker >li {list-style: none; opacity: 0.3; font-weight: bold; background-color: var(--pico-background-color); color: white; margin: 0; padding: 1rem 2rem; border-radius: var(--pico-border-radius); cursor: pointer;}
 ul.picker >li.active {opacity: 1.0; background-color: var(--pico-primary-hover-background);}
 ul.picker >li .note {font-size: 1.2rem; opacity: 0.7; font-weight: normal;}
+
+#status_message {text-align: center; margin: 1rem 0;}
+#status_message.failed {color: var(--pico-del-color);}
 
 .loading {opacity: 0.5;}
 
