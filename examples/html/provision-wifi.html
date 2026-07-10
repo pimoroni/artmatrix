@@ -1,140 +1,175 @@
 <!DOCTYPE html>
+<html>
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="static/stylesheet.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap">
-    <title>Art Matrix Setup</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="static/stylesheet.css">
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap">
+  <title>Art Matrix Setup</title>
 </head>
 
-<section id="wifi_details">
-  <form id="main" action="/provision-welcome" method="post">
-    <h2>OK, next up we'll need some WiFi details.</h2>
-    <aside>In order to set the time and upload your data we will need access to a wireless internet connection.</aside>
+<body>
+  <section id="wifi_details">
+    <form id="main" action="/provision-welcome" method="post">
+      <h2>OK, next up we'll need some WiFi details.</h2>
+      <aside>In order to set the time and upload your data we will need access to a wireless internet connection.
+      </aside>
 
-    <br>
+      <br>
 
-    <h2>Enter a name for your device</h2>
-    <fieldset>
-      <input id="wifi_hostname" name="wifi_hostname" type="text" value="{{config.wifi_hostname}}" placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
-    </fieldset>
+      <h2>Enter a name for your device</h2>
+      <fieldset>
+        <input id="wifi_hostname" name="wifi_hostname" type="text" value="{{config.wifi_hostname}}"
+          placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
+      </fieldset>
 
-    <br>
-    
-    <h2>Select your WiFi network.</h2>
-    <aside>We've had a poke around and these are the networks we can see. Not seeing your network? <a href="javascript: loadNetworks();">Try scanning again</a>.</aside>
-    <div id="loading_networks_message">
-      <svg viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg"><g fill="none" fill-rule="evenodd" transform="translate(1 1)" stroke-width="1"><circle cx="22" cy="22" r="6" stroke-opacity="0"><animate attributeName="r" begin="1.5s" dur="3s" values="6;22" calcMode="linear" repeatCount="indefinite" /><animate attributeName="stroke-opacity" begin="1.5s" dur="3s" values="1;0" calcMode="linear" repeatCount="indefinite" /><animate attributeName="stroke-width" begin="1.5s" dur="3s" values="1;0" calcMode="linear" repeatCount="indefinite" /></circle><circle cx="22" cy="22" r="6" stroke-opacity="0"><animate attributeName="r" begin="3s" dur="3s" values="6;22" calcMode="linear" repeatCount="indefinite" /><animate attributeName="stroke-opacity" begin="3s" dur="3s" values="1;0" calcMode="linear" repeatCount="indefinite" /><animate attributeName="stroke-width" begin="3s" dur="3s" values="1;0" calcMode="linear" repeatCount="indefinite" /></circle><circle cx="22" cy="22" r="8"><animate attributeName="r" begin="0s" dur="1.5s" values="6;1;2;3;4;5;6" calcMode="linear" repeatCount="indefinite" /></circle></g></svg>
-      <div>Scanning for networks.</div>
-    </div>
+      <br>
 
-    <ul id="networks" class="picker">
-    </ul>        
+      <h2>Select your WiFi network.</h2>
+      <aside>We've had a poke around and these are the networks we can see. Not seeing your network? <a
+          href="javascript: loadNetworks();">Try scanning again</a>.</aside>
+      <div id="loading_networks_message">
+        <svg viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg">
+          <g fill="none" fill-rule="evenodd" transform="translate(1 1)" stroke-width="1">
+            <circle cx="22" cy="22" r="6" stroke-opacity="0">
+              <animate attributeName="r" begin="1.5s" dur="3s" values="6;22" calcMode="linear"
+                repeatCount="indefinite" />
+              <animate attributeName="stroke-opacity" begin="1.5s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+              <animate attributeName="stroke-width" begin="1.5s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+            </circle>
+            <circle cx="22" cy="22" r="6" stroke-opacity="0">
+              <animate attributeName="r" begin="3s" dur="3s" values="6;22" calcMode="linear" repeatCount="indefinite" />
+              <animate attributeName="stroke-opacity" begin="3s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+              <animate attributeName="stroke-width" begin="3s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+            </circle>
+            <circle cx="22" cy="22" r="8">
+              <animate attributeName="r" begin="0s" dur="1.5s" values="6;1;2;3;4;5;6" calcMode="linear"
+                repeatCount="indefinite" />
+            </circle>
+          </g>
+        </svg>
+        <div>Scanning for networks.</div>
+      </div>
 
-    <input id="wifi_ssid" name="wifi_ssid" value="{{config.wifi_ssid}}" type="hidden" />
+      <ul id="networks" class="picker">
+      </ul>
 
-    <br>
+      <input id="wifi_ssid" name="wifi_ssid" value="{{config.wifi_ssid}}" type="hidden" />
 
-    <h2>Enter your WiFi password so that we can <s>download pictures of cats</s> upload your data.</h2>
-    <aside>If your device ever has a problem connecting to WiFi during startup then the alarm LED will blink red to let you know that something's wrong.</aside>
-    <fieldset>
-      <input id="wifi_password" name="wifi_password" type="text" value="{{config.wifi_password}}" placeholder="e.g. Cats4lyfe&lt;3!" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
-    </fieldset>
-  </form>
+      <br>
 
-  <nav>
-    <button type="submit" form="main">Done! ➔</button>
-  </nav>
+      <h2>Enter your WiFi password so that we can <s>download pictures of cats</s> upload your data.</h2>
+      <aside>If your device ever has a problem connecting to WiFi during startup then the alarm LED will blink red to
+        let you know that something's wrong.</aside>
+      <fieldset>
+        <input id="wifi_password" name="wifi_password" type="text" value="{{config.wifi_password}}"
+          placeholder="e.g. Cats4lyfe&lt;3!" autocapitalize="none" autocorrect="off" autocomplete="off"
+          spellcheck="false" />
+      </fieldset>
+    </form>
 
-</section>
+    <nav>
+      <button type="submit" form="main">Done! ➔</button>
+    </nav>
 
-<script>
-  var selectedNetwork = "{{config.wifi_ssid}}"
+  </section>
 
-  function loadNetworks() {
-    document.getElementById("loading_networks_message").style.display = "block"
-    document.getElementById("networks").style.display = "none"
+  <script>
+    var selectedNetwork = "{{config.wifi_ssid}}"
 
-    fetch("/networks.json")
-    .then((response) => response.json())
-    .then((data) => {
-      document.getElementById("networks").innerHTML = ""
+    function loadNetworks() {
+      document.getElementById("loading_networks_message").style.display = "block"
+      document.getElementById("networks").style.display = "none"
 
-      for(let network of data) {
-        let listItem = document.createElement("li")
-        listItem.textContent = network
-        if(network == selectedNetwork) {
-          listItem.classList.add("active")
-        }    
-        document.getElementById("networks").appendChild(listItem)
+      fetch("/networks.json")
+        .then((response) => response.json())
+        .then((data) => {
+          document.getElementById("networks").innerHTML = ""
 
-        listItem.addEventListener("click", function(e) {
-          document.querySelectorAll("#networks >li").forEach((e) => {
-            e.classList.remove("active")
-          })
-          listItem.classList.add("active")
-          document.getElementById("wifi_ssid").value = listItem.textContent
+          for (let network of data) {
+            let listItem = document.createElement("li")
+            listItem.textContent = network
+            if (network == selectedNetwork) {
+              listItem.classList.add("active")
+            }
+            document.getElementById("networks").appendChild(listItem)
+
+            listItem.addEventListener("click", function (e) {
+              document.querySelectorAll("#networks >li").forEach((e) => {
+                e.classList.remove("active")
+              })
+              listItem.classList.add("active")
+              document.getElementById("wifi_ssid").value = listItem.textContent
+            })
+          }
+
+          document.getElementById("loading_networks_message").style.display = "none"
+          document.getElementById("networks").style.display = "grid"
         })
-      }
+    }
 
-      document.getElementById("loading_networks_message").style.display = "none"
-      document.getElementById("networks").style.display = "grid"
-    })
-  }
+    loadNetworks()  
+  </script>
 
-  loadNetworks()  
-</script>
+  <script type="text/javascript">
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const setup_form = () => {
+      document.getElementById("main").onsubmit = async (event) => {
+        const data = await new FormData(event.target)
+        console.log(...data)
+        fetch("/test-network", {
+          method: "POST",
+          body: data
+        })
+          .then((response) => { return response.text() })
+          .then(async (text) => {
 
-<script type="text/javascript">
-        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-        const setup_form = () => {
-            document.getElementById("main").onsubmit = async (event) => {
-                const data = await new FormData(event.target)
-                console.log(...data)
-                fetch("/test-network", {
-                    method: "POST",
-                    body: data
-                })
-                .then((response) => {return response.text()})
-                .then(async (text) => {
+            if (text == "OK") {
+              console.log("OK poll for connection...")
+            }
 
+            let complete = false
+            let success = null
+
+            do {
+              await sleep(1000)
+
+              await fetch("/wifi_test_done")
+                .then((response) => { return response.text() })
+                .then((text) => {
+                  if (text == "OK" || text == "FAILED") {
+                    console.log("Testing finished")
+                    complete = true
                     if (text == "OK") {
-                        console.log("OK poll for connection...")
+                      console.log("CONNECTION OKAY SUBMITTING FORM")
+                      event.target.onsubmit = null
+                      event.target.submit()
+                    } else {
+                      // TODO: Display a friendlier user message here
+                      alert("Connection failed")
                     }
-
-                    let complete = false
-                    let success = null
-
-                    do {
-                        await sleep(1000)
-
-                        await fetch("/wifi_test_done")
-                        .then((response) => {return response.text()})
-                        .then((text) => {
-                            if (text == "OK" || text == "FAILED") {
-                                console.log("Testing finished")
-                                complete = true
-                                if(text == "OK") {
-                                    console.log("CONNECTION OKAY SUBMITTING FORM")
-                                    event.target.onsubmit = null
-                                    event.target.submit()
-                                } else {
-                                    // TODO: Display a friendlier user message here
-                                    alert("Connection failed")
-                                }
-                            }
-                            console.log("Testing WiFi connection")
-                        })
-                        
-                    } while (!complete)
+                  }
+                  console.log("Testing WiFi connection")
                 })
 
-                event.preventDefault()
-            };
-        }
-        if (document.readyState === "loading") {
-            document.addEventListener("DOMContentLoaded", (event) => {setup_form()})
-        } else {
-            setup_form()
-        }
-    </script>
+            } while (!complete)
+          })
+
+        event.preventDefault()
+      };
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", (event) => { setup_form() })
+    } else {
+      setup_form()
+    }
+  </script>
+</body>
+
+</html>

@@ -74,7 +74,7 @@ def load_plugins():
     disabled_plugins = config.disabled_plugins
     delay = int(config.delay)
 
-    plugins_on_disk = os.listdir("lib/plugins")
+    plugins_on_disk = os.listdir("/lib/plugins")
     combined = enabled_plugins + disabled_plugins
 
     # remove plugins that no longer exist on disk
@@ -380,6 +380,13 @@ while not wifi.is_connected():
 # ignore OSError and continue
 try:
     ntptime.settime()
+except OSError:
+    pass
+
+
+try:
+    os.mkdir("/lib")
+    os.mkdir("/lib/plugins")
 except OSError:
     pass
 

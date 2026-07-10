@@ -17,7 +17,7 @@ ssid = "Art Matrix Setup"
 ssid_length, _ = screen.measure_text(ssid)
 
 # create the qr payload
-qr_payload = f"WIFI:T:Open;S:{ssid};;"
+qr_payload = f"WIFI:S:{ssid};T:nopass;;"
 
 # put board into access point mode
 logging.info("> going into access point mode")
@@ -104,14 +104,6 @@ screen.text(f"{ssid}", 5, screen.height - 17)
 display.update()
 
 
-# TODO This did not seem to work for me...
-@server.route("/wrong-host-redirect", methods=["GET"])
-def wrong_host_redirect(_request):
-    # if the client requested a resource at the wrong host then present
-    # a meta redirect so that the captive portal browser can be sent to the correct location
-    return f"<!DOCTYPE html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://{DOMAIN}/provision-welcome'\" /></head>"
-
-
 @server.route("/provision-welcome", methods=["GET", "POST"])
 def provision_welcome(request):
     if request.method == "POST":
@@ -160,7 +152,7 @@ def networks(_request):
 def catchall(request):
     # requested domain was wrong
     if request.headers.get("host") != DOMAIN:
-        return redirect(f"http://{DOMAIN}/wrong-host-redirect")
+        return redirect(f"http://{DOMAIN}/provision-welcome", status=302)
 
     # check if requested file exists
     file = f"html{request.path}"

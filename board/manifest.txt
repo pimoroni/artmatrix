@@ -1,5 +1,7 @@
 *.py
 *.af
+html/static/*.css
 html/images/*.svg
 html/images/*.jpg
 html/*.html
+lib/plugins/*
