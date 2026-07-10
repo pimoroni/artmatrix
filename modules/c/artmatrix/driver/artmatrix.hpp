@@ -35,12 +35,32 @@ static constexpr float OE_DUTY[BRIGHTNESS_STEPS] = {
     0.8310f, 0.8744f, 0.9097f, 0.9421f, 0.9721f, 1.0000f
 };
 
-// Perceptual units per power_tick(), so ~0.4s from black to target.
-constexpr float BRIGHTNESS_RAMP_STEP = 0.01f;
+/*
+Light units per power_tick(). The servo solves for the light each limit permits
+and slews toward it, so these bound how fast the panel may change rather than
+setting any loop gain. Retreat faster than we advance.
+*/
+constexpr float BRIGHTNESS_SLEW_UP = 0.01f;
+constexpr float BRIGHTNESS_SLEW_DOWN = 0.05f;
 
-// A sag knocks the ceiling to 0.75x; this earns it back over roughly 8s, so a
-// transient doesn't dim the panel for the rest of the session.
-constexpr float BRIGHTNESS_CEILING_RECOVER = 0.0005f;
+// Below this the LED current is in the ADC noise, and the gains it would
+// imply are meaningless. Hold the last ones; they describe the supply.
+constexpr float LIGHT_MIN_ESTIMATE = 0.02f;
+
+/*
+The gains are content-independent: LED current and sag both scale with light
+times the lit fraction, and the ratio divides that fraction straight back out.
+What is left describes the supply and the panel, which change only when someone
+swaps a cable - so filter hard. ~64 ticks, 256ms. Nothing is lost on a change of
+picture, and power_up() zeroes them, so a replugged supply is learned fresh
+rather than dragged in through the filter.
+*/
+constexpr float POWER_GAIN_FILTER = 0.015625f;
+
+// OE_DUTY is calculated, not measured, so the gamma scale cannot interpolate a
+// multiplier change away perfectly. Don't step back down until well clear of
+// the boundary, or it chatters and each toggle is visible.
+constexpr float OE_STEP_HYSTERESIS = 0.06f;
 
 // The SDK's ADC_BASE_PIN is 40 on RP2350B, putting ADC0-7 on GPIO40-47.
 const uint ADC_CUR_SENSE = 4;   // GPIO44
@@ -61,18 +81,56 @@ constexpr float ADC_CLKDIV = 499.0f; // 48MHz / (499 + 1)
 VLED_SENSE hangs off a 10k/10k divider, so a count is 1.61mV at the pin and
 3.22mV of VLED. 5V reads 3102 of 4095.
 */
-const uint32_t VLED_HEADROOM_COUNTS = 2854; // 4.6V, room to earn brightness back
 const uint32_t VLED_GOOD_COUNTS = 2668;     // 4.3V, panel is happy
 const uint32_t VLED_TRIP_COUNTS = 2482;     // 4.0V, blank the output
 const uint32_t VLED_ABSENT_COUNTS = 1241;   // 2.0V, supply is gone, go hi-z
 const uint VLED_DEBOUNCE = 3;               // captures, so ~12ms
 
 /*
-CUR_SENSE is the eFuse IMON output at 0.1906 V/A, so a count is 4.23mA. The
-part limits at 3.3A (781 counts); stay below that so it never trips.
+How far the rail may sag below its own open-circuit voltage before we stop
+ramping. Measured against what this supply actually delivers unloaded rather
+than against 5V, because a thin cable's IR drop shows up as a lower loaded
+rail at a current far below any sensible budget - absolute thresholds would
+either never engage or never let go.
 */
-const uint32_t CUR_BUDGET_COUNTS = 591;      // 2.5A
-const uint32_t CUR_BUDGET_HYSTERESIS = 47;   // 200mA, so we don't hunt
+// Sag is measured mean-to-mean, so this only has to cover ADC noise. Measured
+// LED current at low brightness sits within a couple of counts of the idle
+// draw, and the content ratio multiplies whatever survives.
+const uint32_t VLED_SAG_NOISE_COUNTS = 2;      // ~6mV
+
+const uint32_t VLED_DROOP_COUNTS = 124;        // 400mV
+const uint32_t VLED_TRIP_MARGIN_COUNTS = 124;  // 400mV of guard above the trip
+
+/*
+The servo settles where the present frame just holds the rail up. The next
+frame can be much brighter - Life is all-dark one generation and dense the
+next - so it must settle far enough above the trip point that a step change in
+content sags into the guard band rather than through it. That is what the
+margin buys, and why retreating is much faster than advancing.
+*/
+
+/*
+CUR_SENSE is the TPS22811's IMON output. 0.1906 V/A appears across the whole
+2k (R18 + R17), but CURRENT_SENSE taps their midpoint, so the ADC sees half of
+it: 0.0953 V/A, and a count is 8.46mA rather than 4.23mA.
+
+The part current-limits at 3.3A (390 counts). Soft start ramps VLED over 15ms,
+which pushes 5000uF * 0.33V/ms = 1.65A of inrush (195 counts) - and that is
+exactly what CUR_SENSE reads at power_up, so it must not be mistaken for the
+panel's idle draw.
+*/
+const uint32_t CUR_BUDGET_COUNTS = 296;   // 2.5A, under the 3.3A limit
+
+// Soft start is 15ms; ignore four captures so neither the idle current nor the
+// open-circuit rail is learned from the middle of the ramp.
+const uint POWER_SETTLE_CAPTURES = 5;
+
+/*
+Extrapolating a frame's cost up to a full white screen means dividing by how
+much of the screen is lit. Below 1/20th the LED current is in the ADC noise and
+the quotient is meaningless, so the loop holds its brightness instead.
+*/
+const uint32_t FRAME_DEMAND_MIN_RECIP = 20;
 
 /*
 14-bit gamma table, gamma correcting our 8-bit colour values into four bits
@@ -148,18 +206,37 @@ class ArtMatrix {
     bool blank = true;
     uint vled_good_count = 0;
     uint vled_absent_count = 0;
+    uint settle_count = 0;
+    uint oe_index = 0;
     uint16_t sensor_counts = 0;
+    uint32_t vled_open_counts = 0;           // core1, rail with the LEDs off
+    uint32_t cur_idle_counts = 0;            // core1, panel draw with LEDs off
+    uint32_t frame_demand = 0;               // core1, sum of channel values
+    uint32_t frame_demand_white = 0;         // core1, same frame, all-white
+
+    // Last values the servo actually acted on, for power_stats().
+    uint32_t last_vled_mean = 0;
+    uint32_t last_vled_min = 0;
+    uint32_t last_cur = 0;
+    uint32_t last_demand_white = 0;
+    float gain_i = 0.0f;                     // all-white LED counts per light
+    float gain_v = 0.0f;                     // all-white sag counts per light
+    float cur_idle_avg = 0.0f;
+    float vled_open_avg = 0.0f;
+    float last_headroom_v = 0.0f;
+    float last_headroom_i = 0.0f;
     volatile float brightness_target = 1.0f; // written by core0
-    float brightness_allowed = 0.0f;         // core1, what the supply will hold
-    float brightness_ceiling = 1.0f;         // core1, what it held last time
+    float brightness_allowed = 0.0f;         // core1, LIGHT the supply will hold
     float brightness_applied = -1.0f;
 
     void gpio_hiz(void);
     void gpio_drive(void);
     void adc_capture_start(void);
     void power_up(void);
+    void release(void);
+    void repaint(void);
     void apply_gamma_scale(uint32_t scale);
-    void apply_brightness(float value);
+    void apply_brightness(float light);
 
     // DMA & PIO
     int dma_channel_a1 = -1;
@@ -236,6 +313,10 @@ class ArtMatrix {
 
     void set_brightness(float value);
     uint16_t get_sensor(void);
+
+    // Raw servo state, so the operating point can be inspected from Python
+    // rather than inferred. Counts, not volts/amps: 3.22mV and 4.23mA each.
+    void get_power_stats(uint32_t counts[7], float headroom[4]);
 
     };
 }

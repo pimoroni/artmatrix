@@ -230,6 +230,23 @@ mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in) {
     return mp_const_none;
 }
 
+// (vled_open, vled_mean, vled_min, cur, cur_idle, demand, demand_white,
+//  headroom_v, headroom_i, allowed, applied)
+// Counts, not volts/amps: VLED 3.22mV per count, CUR 4.23mA per count.
+mp_obj_t artmatrix_power_stats(mp_obj_t self_in) {
+    (void)self_in;
+
+    uint32_t counts[7];
+    float headroom[4];
+    artmatrix_obj.artmatrix->get_power_stats(counts, headroom);
+
+    mp_obj_t out[11];
+    for(uint i = 0u; i < 7u; i++) out[i] = mp_obj_new_int_from_uint(counts[i]);
+    for(uint i = 0u; i < 4u; i++) out[7 + i] = mp_obj_new_float(headroom[i]);
+
+    return mp_obj_new_tuple(11, out);
+}
+
 // The SENS header. Core1 owns the ADC, so this is the latest 4ms average.
 mp_obj_t artmatrix_sensor(mp_obj_t self_in) {
     (void)self_in;
