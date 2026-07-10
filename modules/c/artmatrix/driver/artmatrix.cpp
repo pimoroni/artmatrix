@@ -487,6 +487,19 @@ void ArtMatrix::apply_brightness(float light) {
     apply_gamma_scale((uint32_t)(scale * 1024.0f + 0.5f));
 }
 
+// Any core. How much the panel may draw in total, LEDs and idle together.
+// Defaults to the ceiling, so this only ever lowers it - for a supply that is
+// weaker than the one we ship with. The load switch limits at 3.3A whatever is
+// plugged in, and 3.0A is all a sink may take without negotiating USB-C PD.
+void ArtMatrix::set_current_limit(float amps) {
+    uint32_t counts = (uint32_t)(amps * CUR_COUNTS_PER_AMP + 0.5f);
+
+    if(counts > CUR_LIMIT_COUNTS) counts = CUR_LIMIT_COUNTS;
+    if(counts <= (uint32_t)cur_idle_avg) counts = (uint32_t)cur_idle_avg + 1u;
+
+    cur_budget_counts = counts;
+}
+
 // Any core, perceptual. Core1's power loop picks this up and ramps toward it.
 void ArtMatrix::set_brightness(float value) {
     if(value < 0.0f) value = 0.0f;
@@ -711,7 +724,8 @@ void ArtMatrix::power_tick(void) {
         }
 
         const float sag_budget = vled_open_avg > (float)vled_target ? vled_open_avg - (float)vled_target : 0.0f;
-        const float led_budget = (float)CUR_BUDGET_COUNTS > cur_idle_avg ? (float)CUR_BUDGET_COUNTS - cur_idle_avg : 0.0f;
+        const float budget = (float)cur_budget_counts;
+        const float led_budget = budget > cur_idle_avg ? budget - cur_idle_avg : 0.0f;
 
         // Invert each gain for the light it permits. An unmeasured gain permits
         // everything; the slew limit below keeps that honest.

@@ -247,6 +247,14 @@ mp_obj_t artmatrix_power_stats(mp_obj_t self_in) {
     return mp_obj_new_tuple(11, out);
 }
 
+// Total panel draw allowed, in amps. Clamped to 3.0A: the load switch limits at
+// 3.3A whatever the supply can deliver.
+mp_obj_t artmatrix_set_current_limit(mp_obj_t self_in, mp_obj_t amps_in) {
+    (void)self_in;
+    artmatrix_obj.artmatrix->set_current_limit((float)mp_obj_get_float(amps_in));
+    return mp_const_none;
+}
+
 // The SENS header. Core1 owns the ADC, so this is the latest 4ms average.
 mp_obj_t artmatrix_sensor(mp_obj_t self_in) {
     (void)self_in;

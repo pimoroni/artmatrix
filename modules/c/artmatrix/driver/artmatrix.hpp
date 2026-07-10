@@ -119,7 +119,20 @@ which pushes 5000uF * 0.33V/ms = 1.65A of inrush (195 counts) - and that is
 exactly what CUR_SENSE reads at power_up, so it must not be mistaken for the
 panel's idle draw.
 */
-const uint32_t CUR_BUDGET_COUNTS = 296;   // 2.5A, under the 3.3A limit
+constexpr float CUR_COUNTS_PER_AMP = 118.26f;  // 1A / 8.46mA
+
+/*
+The load switch current-limits at 3.3A, set by the same 2k that scales IMON.
+That is a ceiling on the switch, not on the supply: a 5A brick does not move it,
+and pushing past it drops VLED, which the servo reads as droop anyway. Leave
+300mA of margin so a transient does not trip the part.
+
+3.0A is also what the board may draw without negotiating USB-C PD, which is the
+5V Rp advertisement the shipped supply makes. So the default is the ceiling, and
+set_current_limit() exists to lower it for a weaker supply, not to raise it.
+*/
+const uint32_t CUR_LIMIT_COUNTS = 355;    // 3.0A, the most we may ever ask for
+const uint32_t CUR_BUDGET_COUNTS = CUR_LIMIT_COUNTS;
 
 // Soft start is 15ms; ignore four captures so neither the idle current nor the
 // open-circuit rail is learned from the middle of the ramp.
@@ -213,6 +226,7 @@ class ArtMatrix {
     uint32_t cur_idle_counts = 0;            // core1, panel draw with LEDs off
     uint32_t frame_demand = 0;               // core1, sum of channel values
     uint32_t frame_demand_white = 0;         // core1, same frame, all-white
+    volatile uint32_t cur_budget_counts = CUR_BUDGET_COUNTS; // written by core0
 
     // Last values the servo actually acted on, for power_stats().
     uint32_t last_vled_mean = 0;
@@ -312,6 +326,7 @@ class ArtMatrix {
     bool is_powered(void);
 
     void set_brightness(float value);
+    void set_current_limit(float amps);
     uint16_t get_sensor(void);
 
     // Raw servo state, so the operating point can be inspected from Python
