@@ -1,7 +1,8 @@
 // Board and hardware specific configuration
 #define MICROPY_HW_BOARD_NAME                   "ArtMatrix"
 
-#define MICROPY_HW_ROMFS_BYTES                  (1 * 1024 * 1024)
+// Defined in mpconfigboard.cmake
+// #define MICROPY_HW_ROMFS_BYTES                  (1 * 1024 * 1024)
 
 #define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_C)
 
