@@ -1,6 +1,6 @@
 export TERM=${TERM:="xterm-256color"}
 
-# cache buster: 2026-07-09
+# cache buster: 2026-07-18
 
 MICROPYTHON_FLAVOUR="pimoroni"
 # bw-1.28.0-3 without the USB MSC additions, which reference msc_disk.c symbols
