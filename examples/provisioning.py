@@ -128,13 +128,12 @@ def test_network(request):
 
 
 @server.route("/wifi_test_done", methods=["GET"])
-def provisioning_done(request):
+def provisioning_done(_request):
     if wlan and wlan.status() == network.STAT_GOT_IP:
         return "OK"
-    elif wlan.status() == network.STAT_CONNECTING:
+    if wlan.status() == network.STAT_CONNECTING:
         return "CONNECTING"
-    else:
-        return "FAILED"
+    return "FAILED"
 
 
 @server.route("/networks.json")

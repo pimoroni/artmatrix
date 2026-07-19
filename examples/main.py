@@ -25,7 +25,7 @@ try:
     import config  # fails to import (missing/corrupt) go into provisioning
     if not config.provisioned:   # provisioned flag not set go into provisioning
         needs_provisioning = True
-except Exception:
+except Exception:  # noqa: BLE001
     needs_provisioning = True
 
 if needs_provisioning:
@@ -260,13 +260,13 @@ def configure_plugin(request):
 
 
 @server.route("/plugins.json")
-def plugins(request):
+def plugins(_request):
     j = {"enabled": config.enabled_plugins, "disabled": config.disabled_plugins}
     return json.dumps(j), 200, "application/json"
 
 
 @server.route("/index.json")
-def networks(request):
+def networks(_request):
     # get the index of available plugins and return it
     r = requests.get(INDEX_URL)
     j = r.json()
