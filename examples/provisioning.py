@@ -129,10 +129,11 @@ def test_network(request):
 
 @server.route("/wifi_test_done", methods=["GET"])
 def provisioning_done(_request):
-    if wlan and wlan.status() == network.STAT_GOT_IP:
-        return "OK"
-    if wlan.status() == network.STAT_CONNECTING:
-        return "CONNECTING"
+    if wlan:
+        if wlan.status() == network.STAT_GOT_IP:
+            return "OK"
+        if wlan.status() == network.STAT_CONNECTING:
+            return "CONNECTING"
     return "FAILED"
 
 
