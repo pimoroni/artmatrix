@@ -13,7 +13,7 @@ builtins.BUTTON_B = board.SW_B
 builtins.BUTTON_C = board.SW_C
 builtins.BUTTON_USER = board.SW_USER
 
-builtins.UID = binascii.hexlify(machine.unique_id()).decode("ASCII")
+builtins.UID = binascii.hexlify(machine.unique_id()).decode("ascii")
 
 for k, v in picovector.__dict__.items():
     if not k.startswith("__"):
