@@ -14,6 +14,7 @@ builtins = [
     "mat3",
     "pen",
     "pixel_font",
+    "vector_font",
     "vec2",
     "rect",
     "shape",
@@ -35,6 +36,8 @@ builtins = [
     "rom_font",
     "load_font",
     "text",
+    "register_glyph_renderer",
+    "register_sprite",
 
 # sprite.py
     "SpriteSheet",
