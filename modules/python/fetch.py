@@ -3,8 +3,6 @@ import tls
 import time
 import socket
 import json
-from errno import EINPROGRESS
-from collections import deque
 
 
 class HTTPException(Exception):
@@ -88,6 +86,8 @@ class AsyncFetch:
             self.finish()
             return self.stream
 
+        return None
+
     def _http_fetch(self):
         self._status_code = None
         self._response_headers = {}
@@ -121,7 +121,7 @@ class AsyncFetch:
             self._sock.write(f"{self._method} /{self._path} HTTP/1.0\r\nHost: {self._host}\r\n".encode("UTF-8"))
 
             for k in self._headers:
-                result = self._sock.write(f"{k}: {self._headers[k]}\r\n".encode("UTF-8"))
+                self._sock.write(f"{k}: {self._headers[k]}\r\n".encode("UTF-8"))
 
             if self._data:
                 self._sock.write(f"Content-Length: {len(self._data)}\r\n\r\n".encode("UTF-8"))
@@ -230,7 +230,7 @@ class AsyncFetch:
                     else:
                         self._status = AsyncFetch.ERROR
                         if not callable(self._on_error) or not self._on_error(self):
-                            raise HTTPException(self)
+                            raise HTTPException(self) from None
 
         return self._status
 
@@ -268,7 +268,7 @@ class AsyncFetch:
 
     def finish(self):
         # Force a blocking finish of the fetch command
-        while (result := self.update()) != AsyncFetch.DONE:
+        while self.update() != AsyncFetch.DONE:
             pass
 
     def on_complete(self, handler):
@@ -279,8 +279,6 @@ class AsyncFetch:
 
 
 if __name__ == "__main__":
-    import random
-
     api = AsyncFetch("postman-echo.com", 443, use_tls=True, debug=True)
     # api = AsyncFetch("pimoroni.github.io", 443, use_tls=True, debug=True)
 

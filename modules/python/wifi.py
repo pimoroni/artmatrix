@@ -66,7 +66,7 @@ def connect(ssid=None, psk=None, hostname=None, timeout=60, retries=5):
   wlan = network.WLAN(network.STA_IF)
   wlan.active(True)
   if hostname:
-      wlan.config(hostname=hostname) 
+      wlan.config(hostname=hostname)
   # Already connected from a previous attempt
   if wlan.isconnected():
     return True
