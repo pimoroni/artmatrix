@@ -17,27 +17,27 @@ connect_to_wifi(secrets.WIFI_SSID, secrets.WIFI_PASSWORD)
 
 # basic response with status code and content type
 @server.route("/basic", methods=["GET", "POST"])
-def basic(request):
+def basic(_request):
   return "Gosh, a request", 200, "text/html"
 
 # basic response with status code and content type
 @server.route("/status-code", methods=["GET", "POST"])
-def status_code(request):
+def status_code(_request):
   return "Here, have a status code", 200, "text/html"
 
 # url parameter and template render
 @server.route("/hello/<name>", methods=["GET"])
-def hello(request, name):
+def hello(_request, name):
   return await render_template("example.html", name=name)
 
 # response with custom status code
 @server.route("/are/you/a/teapot", methods=["GET"])
-def teapot(request):
+def teapot(_request):
   return "Yes", 418
 
 # custom response object
 @server.route("/response", methods=["GET"])
-def response_object(request):
+def response_object(_request):
   return server.Response("test body", status=302, content_type="text/html", headers={"Cache-Control": "max-age=3600"})
 
 # query string example
@@ -50,7 +50,7 @@ def random_number(request):
 
 # catchall example
 @server.catchall()
-def catchall(request):
+def catchall(_request):
   return "Not found", 404
 
 # start the webserver
