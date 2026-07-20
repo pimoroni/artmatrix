@@ -12,7 +12,6 @@ class Scroll:
         self.speed = speed
         self.gap = gap
 
-        print(type(font_face))
         self.is_vector_font = isinstance(font_face, vector_font)
 
         if self.is_vector_font and font_size is None:
