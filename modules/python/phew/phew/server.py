@@ -105,9 +105,9 @@ class FileResponse(Response):
         # auto set content type
         extension = self.file.split(".")[-1].lower()
         if extension in content_type_map:
-          headers["Content-Type"] = content_type_map[extension]
+          self.headers["Content-Type"] = content_type_map[extension]
 
-        headers["Content-Length"] = os.stat(self.file)[6]
+        self.headers["Content-Length"] = os.stat(self.file)[6]
     except OSError:
       return False
 
