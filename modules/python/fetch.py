@@ -118,13 +118,13 @@ class AsyncFetch:
         self._sock.setblocking(True)
 
         try:
-            self._sock.write(f"{self._method} /{self._path} HTTP/1.0\r\nHost: {self._host}\r\n".encode("UTF-8"))
+            self._sock.write(f"{self._method} /{self._path} HTTP/1.0\r\nHost: {self._host}\r\n".encode("utf-8"))
 
             for k in self._headers:
-                self._sock.write(f"{k}: {self._headers[k]}\r\n".encode("UTF-8"))
+                self._sock.write(f"{k}: {self._headers[k]}\r\n".encode("utf-8"))
 
             if self._data:
-                self._sock.write(f"Content-Length: {len(self._data)}\r\n\r\n".encode("UTF-8"))
+                self._sock.write(f"Content-Length: {len(self._data)}\r\n\r\n".encode("utf-8"))
                 self._sock.write(self._data)
 
             else:
@@ -144,10 +144,10 @@ class AsyncFetch:
                     break
 
                 elif line.startswith(b"HTTP/"):
-                    self._status_code = int(line.decode("UTF-8").strip().split(" ")[1])
+                    self._status_code = int(line.decode("utf-8").strip().split(" ")[1])
 
                 elif b": " in line:
-                    k, v = line.decode("UTF-8").strip().split(": ")
+                    k, v = line.decode("utf-8").strip().split(": ")
                     self._response_headers[k] = v
 
             if "chunked" in self._response_headers.get("Transfer-Encoding", ()):
@@ -261,7 +261,7 @@ class AsyncFetch:
     @property
     def stream(self):
         # Return a FileIO for a saved file or a StringIO containing the buffer value
-        return open(self._file, "r") if self._file else io.StringIO(memoryview(self._buffer.getvalue())[: self._buffer_len], encoding="UTF-8")
+        return open(self._file, "r") if self._file else io.StringIO(memoryview(self._buffer.getvalue())[: self._buffer_len], encoding="utf-8")
 
     def to_json(self):
         return json.load(self.stream)
@@ -309,8 +309,8 @@ if __name__ == "__main__":
     # Start a fetch
     api.fetch("/")
     # api.fetch("/get", interval=0, method="GET")
-    # api.fetch("/post", interval=0, method="POST", data='{"test": 1}'.encode("UTF-8"), headers={"content-type": "application/json"})
-    # api.fetch("/post", interval=0, method="POST", data='test=1&another=2'.encode("UTF-8"), headers={"content-type": "application/x-www-form-urlencoded"})
+    # api.fetch("/post", interval=0, method="POST", data='{"test": 1}'.encode("utf-8"), headers={"content-type": "application/json"})
+    # api.fetch("/post", interval=0, method="POST", data='test=1&another=2'.encode("utf-8"), headers={"content-type": "application/x-www-form-urlencoded"})
     # api.fetch("/feed2image/jokeapi-5999.json")
 
     while True:
