@@ -243,16 +243,21 @@ def remove_plugin(request):
 def configure_plugin(request):
 
     plugin = request.query["plugin"]
-    p = __import__(f"lib/plugins/{plugin}")
+    p = __import__(f"/lib/plugins/{plugin}")
 
     if request.method == "POST":
-        with open(f"lib/plugins/{plugin}/config.json", "w") as file:
-            json.dump(request.form, file)
+        # Check if the plugin has it own processor
+        process = getattr(p, "process_config", None)
+        if process:
+            process(request.form)
+        else:
+            with open(f"lib/plugins/{plugin}/config.json", "w") as file:
+                json.dump(request.form, file)
 
-        del sys.modules[f"lib/plugins/{plugin}"]
+        del sys.modules[f"/lib/plugins/{plugin}"]
         gc.collect()
         index = [modules.index(m) for m in modules if m[0] == plugin][0]
-        modules[index] = (f"{plugin}", __import__(f"lib/plugins/{plugin}"))
+        modules[index] = (f"{plugin}", __import__(f"/lib/plugins/{plugin}"))
 
         return redirect("/", status=303)
 
@@ -324,7 +329,6 @@ async def draw():
     while True:
 
         if modules:
-
             if fading:
                 fade_progress = min(1.0, time.ticks_diff(time.ticks_ms(), fade_start) / FADE_DURATION)
                 t = int(255 * easeOutCubic(fade_progress))
