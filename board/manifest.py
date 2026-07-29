@@ -1,6 +1,7 @@
 require("bundle-networking")
 require("urllib.urequest")
 require("umqtt.simple")
+require("bisect")
 
 # Bluetooth
 require("aioble")
