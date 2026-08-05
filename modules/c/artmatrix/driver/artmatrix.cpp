@@ -483,8 +483,6 @@ void __noinline __not_in_flash("ArtMatrix_update") ArtMatrix::update(uint8_t ble
 // GAMMA_14BIT is linear light, so scaling it is just a multiply. `scale` is
 // 1.10 fixed point. Nothing about the scan changes, so this can't flicker.
 void ArtMatrix::apply_gamma_scale(uint32_t scale) {
-    const uint32_t was_white = gamma_lut[255];
-
     gamma_lut[0] = 0;
     for(uint32_t i = 1u; i < 256u; i++) {
         const uint32_t v = (GAMMA_14BIT[i] * scale + 512) >> 10;
@@ -492,21 +490,12 @@ void ArtMatrix::apply_gamma_scale(uint32_t scale) {
         gamma_lut[i] = (v == 0 && scale != 0) ? 1 : v;
     }
 
-    // frame_demand describes the last frame rendered, through the table as it
-    // was. Every entry moves by the same ratio, so carry the estimate across
-    // arithmetically: re-rendering to refresh it would need a retained copy of
-    // the frame, and the servo would otherwise read a demand and a demand_white
-    // from different brightnesses and oscillate on the difference.
-    if(was_white) {
-        frame_demand = (uint32_t)(((uint64_t)frame_demand * gamma_lut[255]) / was_white);
-    } else {
-        // Coming back from a blanked table there is no ratio to carry, and
-        // pairing the old demand with a fresh demand_white would hand the servo
-        // a lit fraction from before the panel went down. Zero it, and the
-        // demand > 0 guard holds the gains until a real frame lands.
-        frame_demand = 0;
-    }
-    frame_demand_white = 3u * width * height * (uint32_t)gamma_lut[255];
+    // frame_demand and frame_demand_white are deliberately left alone. The servo
+    // only wants their ratio, which is the reciprocal of the lit fraction and so
+    // free of brightness: rescaling them here to track the table would be a
+    // truncating divide every few milliseconds, and the error only ever rounds
+    // down. Both are written together by update(), which is what keeps them at
+    // one brightness; going stale between flips costs the servo nothing.
 }
 
 // Perceptual 0.0 - 1.0 to a fraction of full light. Equal steps of the input
@@ -605,6 +594,12 @@ void ArtMatrix::power_up(void) {
     // again. Nothing here keeps a copy of the frame to put back.
     for(uint32_t i = 0u; i < width * height; i++) back_buffer[i] = 0;
     apply_gamma_scale(0);
+
+    // The panel is showing black, so the last frame's demand describes nothing
+    // that is lit. Zero both and the demand > 0 guard holds the servo's gains
+    // until the application renders again.
+    frame_demand = 0;
+    frame_demand_white = 0;
 
     gpio_drive();
     start(irq_handler);
@@ -761,9 +756,8 @@ void ArtMatrix::power_tick(void) {
         // measure the two plant gains and solve for the light that reaches each
         // limit. Slew toward the smaller. One step, no tuning.
         //
-        // demand and demand_white are held at the same brightness by
-        // apply_gamma_scale; their ratio is the reciprocal of the lit
-        // fraction, and is free of brightness.
+        // demand and demand_white come from the same render; their ratio is
+        // the reciprocal of the lit fraction, and is free of brightness.
         const uint32_t demand_white = frame_demand_white;
         const uint32_t demand = frame_demand;
         last_demand_white = demand_white;

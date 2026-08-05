@@ -1,6 +1,7 @@
 // Include MicroPython API.
 #include "py/runtime.h"
 #include "py/objstr.h"
+#include "py/objarray.h"
 
 /***** Extern of Class Definition *****/
 extern const mp_obj_type_t artmatrix_type;
@@ -13,6 +14,7 @@ extern mp_obj_t artmatrix_update(size_t n_args, const mp_obj_t *args);
 extern mp_obj_t artmatrix_surface(mp_obj_t self_in, mp_obj_t index_in);
 extern mp_obj_t artmatrix_is_busy(mp_obj_t self_in);
 extern mp_obj_t artmatrix_set_blocking(mp_obj_t self_in, mp_obj_t blocking_in);
+extern mp_obj_t artmatrix_set_hold(mp_obj_t self_in, mp_obj_t hold_in);
 extern mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in);
 extern mp_obj_t artmatrix_sensor(mp_obj_t self_in);
 extern mp_obj_t artmatrix_power_stats(mp_obj_t self_in);

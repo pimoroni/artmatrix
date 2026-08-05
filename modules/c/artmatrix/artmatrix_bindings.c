@@ -7,6 +7,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(artmatrix_update_obj, 1, 2, artmatrix_update
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_surface_obj, artmatrix_surface);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_is_busy_obj, artmatrix_is_busy);
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_blocking_obj, artmatrix_set_blocking);
+MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_hold_obj, artmatrix_set_hold);
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_brightness_obj, artmatrix_set_brightness);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_sensor_obj, artmatrix_sensor);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_power_stats_obj, artmatrix_power_stats);
@@ -21,6 +22,7 @@ static const mp_rom_map_elem_t artmatrix_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_surface), MP_ROM_PTR(&artmatrix_surface_obj) },
     { MP_ROM_QSTR(MP_QSTR_is_busy), MP_ROM_PTR(&artmatrix_is_busy_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_blocking), MP_ROM_PTR(&artmatrix_set_blocking_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_hold), MP_ROM_PTR(&artmatrix_set_hold_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_brightness), MP_ROM_PTR(&artmatrix_set_brightness_obj) },
     { MP_ROM_QSTR(MP_QSTR_sensor), MP_ROM_PTR(&artmatrix_sensor_obj) },
     { MP_ROM_QSTR(MP_QSTR_power_stats), MP_ROM_PTR(&artmatrix_power_stats_obj) },

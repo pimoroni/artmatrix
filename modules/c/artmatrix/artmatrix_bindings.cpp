@@ -79,6 +79,12 @@ typedef struct _artmatrix_obj_t {
     volatile bool exit_core1;
     volatile bool flip;
     bool blocking;
+    // While set, update() does nothing. The application holds this over a
+    // plugin's draw call so the plugin cannot flip a half-drawn surface, or
+    // present the wrong one part way through a transition. Suppressed calls are
+    // counted so the caller can report a plugin that tries.
+    bool hold;
+    uint32_t held_calls;
     // Mix of the two drawing surfaces for the next flip. Set before flip, so
     // core1 reads a value that belongs to the frame it is about to commit.
     volatile uint8_t blend;
@@ -208,6 +214,8 @@ mp_obj_t artmatrix_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_k
     artmatrix_obj.artmatrix = new(artmatrix_buffer) ArtMatrix();
     artmatrix_obj.flip = false;
     artmatrix_obj.blocking = true;
+    artmatrix_obj.hold = false;
+    artmatrix_obj.held_calls = 0u;
     artmatrix_obj.blend = 0u;
 
     artmatrix_core1_start();
@@ -224,6 +232,20 @@ mp_obj_t artmatrix_set_blocking(mp_obj_t self_in, mp_obj_t blocking_in) {
     (void)self_in;
     artmatrix_obj.blocking = mp_obj_is_true(blocking_in);
     return mp_const_none;
+}
+
+// display.set_hold(True) makes update() a no-op, so code that does not own the
+// frame cannot commit one. The application wraps each plugin's draw in it.
+// Returns how many update() calls were swallowed, so releasing the hold can
+// report a plugin that tried rather than leaving its author to wonder.
+mp_obj_t artmatrix_set_hold(mp_obj_t self_in, mp_obj_t hold_in) {
+    (void)self_in;
+
+    const uint32_t held = artmatrix_obj.held_calls;
+    artmatrix_obj.hold = mp_obj_is_true(hold_in);
+    artmatrix_obj.held_calls = 0u;
+
+    return mp_obj_new_int_from_uint(held);
 }
 
 // Sets the target only. Core1 owns the gamma table, and ramps toward this as
@@ -276,6 +298,12 @@ mp_obj_t artmatrix_sensor(mp_obj_t self_in) {
 // display.update(blend=0). blend mixes surface 0 into surface 1, so a plugin
 // transition is a core1 pass over the frame it already copies.
 mp_obj_t artmatrix_update(size_t n_args, const mp_obj_t *args) {
+    // Whoever owns the frame is mid-way through it; this call is not theirs.
+    if(artmatrix_obj.hold) {
+        artmatrix_obj.held_calls++;
+        return mp_const_none;
+    }
+
     mp_int_t blend = 0;
     if(n_args >= 2) {
         blend = mp_obj_get_int(args[1]);
@@ -315,7 +343,10 @@ mp_obj_t artmatrix_surface(mp_obj_t self_in, mp_obj_t index_in) {
         mp_raise_ValueError(MP_ERROR_TEXT("surface index must be 0 or 1"));
     }
 
-    return mp_obj_new_memoryview('B', ARTMATRIX_WIDTH * ARTMATRIX_HEIGHT * 4,
+    // The RW flag matters: without it memoryview_get_buffer refuses a write
+    // request, and wrapping this in an image() asks for a writable buffer.
+    return mp_obj_new_memoryview('B' | MP_OBJ_ARRAY_TYPECODE_FLAG_RW,
+                                 ARTMATRIX_WIDTH * ARTMATRIX_HEIGHT * 4,
                                  artmatrix_obj.artmatrix->get_surface((uint32_t)index));
 }
 
