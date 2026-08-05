@@ -147,10 +147,14 @@ than against 5V, because a thin cable's IR drop shows up as a lower loaded
 rail at a current far below any sensible budget - absolute thresholds would
 either never engage or never let go.
 */
-// Sag is measured mean-to-mean, so this only has to cover ADC noise.
-const uint32_t VLED_SAG_NOISE_COUNTS = 2;      // ~3mV
+// Droop is measured minimum-to-minimum, so the panel's own ripple cancels and
+// this only has to cover the scatter left on the minimum statistic itself.
+const uint32_t VLED_SAG_NOISE_COUNTS = 8;      // ~13mV
 
-const uint32_t VLED_DROOP_COUNTS = 124;        // 200mV
+// How far the loaded minimum may fall below the open-circuit minimum. Sized
+// from the panel rather than from a guess: an open rail of 5.03V less 700mV
+// lands on 4.33V, which is where VLED_GOOD_COUNTS says the panel is happy.
+const uint32_t VLED_DROOP_COUNTS = 434;        // 700mV
 
 // Guard band between where calibration stops and where the trip fires.
 // Calibration walks up until the rail reaches its droop target, so without this
@@ -162,7 +166,7 @@ CUR_SENSE is the TPS22811's IMON output. 0.1906 V/A appears across the whole
 2k (R18 + R17), but CURRENT_SENSE taps their midpoint, so the ADC sees half of
 it: 0.0953 V/A, and a count is 8.46mA rather than 4.23mA.
 
-The part current-limits at 3.3A (390 counts). Soft start ramps VLED over 15ms,
+Soft start ramps VLED over 15ms,
 which pushes 5000uF * 0.33V/ms = 1.65A of inrush (195 counts) - and that is
 exactly what CUR_SENSE reads at power_up, so it must not be mistaken for the
 panel's idle draw.
@@ -170,16 +174,19 @@ panel's idle draw.
 constexpr float CUR_COUNTS_PER_AMP = 118.26f;  // 1A / 8.46mA
 
 /*
-The load switch current-limits at 3.3A, set by the same 2k that scales IMON.
-That is a ceiling on the switch, not on the supply: a 5A brick does not move it,
-and pushing past it drops VLED, which shows up as droop anyway. Leave
-300mA of margin so a transient does not trip the part.
+Total panel draw allowed, LEDs and idle together.
 
-3.0A is also what the board may draw without negotiating USB-C PD, which is the
-5V Rp advertisement the shipped supply makes. So the default is the ceiling, and
-set_current_limit() exists to lower it for a weaker supply, not to raise it.
+The load switch is good for 10A continuous, so it is not the constraint. The
+shipped supply is 5A and tested to deliver it, and this leaves it half an amp.
+
+Peaks run about 2.8x the mean, since BCM puts half of each frame's lit time in
+bitplane 9 and the scan is bitplane-major, so this implies roughly 12A of
+sub-millisecond peak. VLED's bulk capacitance carries that between pulses; the
+rail dip it costs is what the droop budget above regulates.
+
+set_current_limit() lowers this for a weaker supply.
 */
-const uint32_t CUR_LIMIT_COUNTS = 355;    // 3.0A, the most we may ever ask for
+const uint32_t CUR_LIMIT_COUNTS = 532;    // 4.5A, the most we may ever ask for
 const uint32_t CUR_BUDGET_COUNTS = CUR_LIMIT_COUNTS;
 
 // Soft start is 15ms; ignore four captures so neither the idle current nor the
@@ -264,6 +271,7 @@ class ArtMatrix {
     uint oe_index = 0;
     uint16_t sensor_counts = 0;
     uint32_t vled_open_counts = 0;           // core1, rail with the LEDs off
+    uint32_t vled_open_min_counts = 0;       // core1, its worst sample, what droop is measured against
     uint32_t cur_idle_counts = 0;            // core1, panel draw with LEDs off
     volatile uint32_t cur_budget_counts = CUR_BUDGET_COUNTS; // written by core0
 
@@ -297,6 +305,7 @@ class ArtMatrix {
     float gain_v = 0.0f;                     // all-white sag counts per light
     float cur_idle_avg = 0.0f;
     float vled_open_avg = 0.0f;
+    float vled_open_min_avg = 0.0f;
     float last_headroom_v = 0.0f;
     float last_headroom_i = 0.0f;
     volatile float brightness_target = 1.0f; // written by core0

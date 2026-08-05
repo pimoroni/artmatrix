@@ -670,6 +670,8 @@ void ArtMatrix::power_up(void) {
     vled_absent_count = 0;
     vled_open_counts = 0;
     vled_open_avg = 0.0f;
+    vled_open_min_counts = 0;
+    vled_open_min_avg = 0.0f;
     cur_idle_counts = 0;
     cur_idle_avg = 0.0f;
     gain_i = 0.0f;
@@ -713,6 +715,7 @@ void ArtMatrix::power_down(void) {
     brightness_applied = -1.0f;
     vled_good_count = 0;
     vled_open_counts = 0;
+    vled_open_min_counts = 0;
     calibrating = false;
     blank = true;
     panel_powered = false;
@@ -955,6 +958,14 @@ void ArtMatrix::power_tick(void) {
             ? vled_open_avg + (vled_avg - vled_open_avg) * 0.125f
             : vled_avg;
         vled_open_counts = (uint32_t)vled_open_avg;
+
+        // And the same window minimum droop is measured with below, so the
+        // panel's own ripple appears at both ends and cancels.
+        const float open_min = (float)last_vled_min;
+        vled_open_min_avg = vled_open_min_avg > 0.0f
+            ? vled_open_min_avg + (open_min - vled_open_min_avg) * 0.125f
+            : open_min;
+        vled_open_min_counts = (uint32_t)vled_open_min_avg;
     }
 
     // What the panel is drawing over its own idle load, and how far it is
@@ -962,23 +973,36 @@ void ArtMatrix::power_tick(void) {
     // between averaged ticks and has nothing fresher to work from.
     last_led = cur_avg > cur_idle_avg ? cur_avg - cur_idle_avg : 0.0f;
 
-    const float sag_raw = vled_open_avg > vled_avg ? vled_open_avg - vled_avg : 0.0f;
-    last_sag = sag_raw > (float)VLED_SAG_NOISE_COUNTS ? sag_raw - (float)VLED_SAG_NOISE_COUNTS : 0.0f;
+    /*
+    Droop, minimum to minimum. The load pulls the rail down inside a frame and
+    lets it back up, so the mean barely registers: measured, 10mV of mean-to-mean
+    against a real dip of 280mV. Regulating on that reads as no droop at all, and
+    the limit never engages however hard the panel is driven.
+    */
+    const float dip = vled_open_min_avg > (float)last_vled_min
+                    ? vled_open_min_avg - (float)last_vled_min : 0.0f;
+    last_sag = dip > (float)VLED_SAG_NOISE_COUNTS ? dip - (float)VLED_SAG_NOISE_COUNTS : 0.0f;
 
     // Never target a rail below the trip point plus its guard.
     uint32_t vled_target = VLED_TRIP_COUNTS + VLED_TRIP_MARGIN_COUNTS;
-    if(vled_open_counts > vled_target + VLED_DROOP_COUNTS) {
-        vled_target = vled_open_counts - VLED_DROOP_COUNTS;
+    if(vled_open_min_counts > vled_target + VLED_DROOP_COUNTS) {
+        vled_target = vled_open_min_counts - VLED_DROOP_COUNTS;
     }
 
-    last_sag_budget = vled_open_avg > (float)vled_target ? vled_open_avg - (float)vled_target : 0.0f;
+    last_sag_budget = vled_open_min_avg > (float)vled_target
+                    ? vled_open_min_avg - (float)vled_target : 0.0f;
     const float budget = (float)cur_budget_counts;
     last_led_budget = budget > cur_idle_avg ? budget - cur_idle_avg : 0.0f;
 
     const float led = last_led;
     const float led_budget = last_led_budget;
     const float sag_budget = last_sag_budget;
-    const bool over_budget = led >= led_budget || last_sag >= sag_budget;
+    // Droop only counts once there is an open-circuit reading to measure it
+    // against. Until then both it and its budget are zero, which would read as
+    // over budget and stop the calibration walk on its first step.
+    const bool sag_measured = vled_open_min_avg > 0.0f;
+    const bool over_budget = led >= led_budget
+                          || (sag_measured && last_sag >= sag_budget);
 
     if(blank) {
         // Nothing to regulate with the output off: the budgets describe LED
