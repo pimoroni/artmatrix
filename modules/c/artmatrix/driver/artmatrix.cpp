@@ -14,12 +14,6 @@ static Pixel __attribute__ ((aligned (4))) back_buffer[width * height];
 // snapshots on core0. See update().
 static uint32_t __attribute__ ((aligned (4))) second_buffer[width * height];
 
-// front_buffer is what Python draws into, through memoryview(display), so it is
-// only a whole frame at the instant update() is called. The servo repaints
-// whenever it changes the gamma scale, which is any 4ms - reading front_buffer
-// then would push half-drawn frames to the panel. Commit a copy instead.
-static uint32_t __attribute__ ((aligned (4))) committed_buffer[width * height];
-
 // Kept out of the class so ArtMatrix stays small enough for the placement-new
 // buffer the bindings reserve for it.
 static uint16_t __attribute__ ((aligned (4))) adc_buffer[ADC_SAMPLES];
@@ -340,7 +334,7 @@ void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
         // Latch row data, pulse output enable for new row. Blanking is a zero
         // width pulse: pulse_loop still runs once, so OEn asserts for a single
         // 6ns cycle, 0.06% of a frame. Unlike dimming the gamma table it lands
-        // on the next row instead of waiting for a repaint.
+        // on the next row instead of waiting for the next update().
         const uint32_t pulse = blank ? 0 : ((brightness << bit_a) - 4);
 
         // Both row SMs just stalled, so their TX FIFOs are known empty.
@@ -423,32 +417,12 @@ static inline uint32_t lerp8888(uint32_t a, uint32_t b, uint32_t t) {
     return rb | ga;
 }
 
-static void __no_inline_not_in_flash_func(commit_blend)(const uint32_t *a, const uint32_t *b, uint32_t t) {
-    for(uint32_t i = 0u; i < width * height; i++) committed_buffer[i] = lerp8888(a[i], b[i], t);
-}
-
-// Take the frame Python has finished drawing, then render it. `blend` mixes the
-// two drawing surfaces, so a plugin transition costs core1 one pass here rather
-// than costing core0 a pair of snapshots and a composite. The end values take
-// the plain copy, which is every frame outside a transition.
-//
-// Section named by hand: __no_inline_not_in_flash_func stringifies its argument
-// into the section name, and a parameter list with a space in it emits a
-// .section directive the assembler can't parse.
-void __noinline __not_in_flash("ArtMatrix_update") ArtMatrix::update(uint8_t blend) {
-    if(blend == 0u || blend == 255u) {
-        const uint32_t *src = blend ? second_buffer : front_buffer;
-        for(uint32_t i = 0u; i < width * height; i++) committed_buffer[i] = src[i];
-    } else {
-        commit_blend(front_buffer, second_buffer, blend);
-    }
-    repaint();
-}
-
-// Render the committed frame through the current gamma table. Safe to call at
-// any time: nothing else writes committed_buffer.
-void __no_inline_not_in_flash_func(ArtMatrix::repaint(void)) {
-    const uint32_t *p = committed_buffer;
+// Walk a frame through the gamma table into back_buffer, returning its demand.
+// Blend is a template parameter so the common case carries no per-pixel test,
+// and always_inline puts both instantiations in update()'s SRAM section.
+template<bool Blend>
+static inline __attribute__((always_inline))
+uint32_t render(const uint32_t *a, const uint32_t *b, uint32_t t, uint32_t b_offset) {
     uint32_t demand = 0u;
 
     for(uint32_t y = 0u; y < height; y++) {
@@ -456,22 +430,48 @@ void __no_inline_not_in_flash_func(ArtMatrix::repaint(void)) {
         // Mirror along the Y axis (top to bottom)
         const uint32_t sx = height - 1 - y;
         const uint8_t *dither = &BAYER_4X4[(y & 3) << 2];
+        const uint32_t row = y * width;
 
         // Source x picks the panel, so walk each half separately. Within a
         // half the destination just advances one row (`width`) per pixel.
         // width / 2 is a multiple of 4, so the dither phase carries over.
-        Pixel *b = &back_buffer[panel_b_offset + sx];
-        for(uint32_t x = 0u; x < width / 2; x++, b += width) {
-            *b = gamma_pack(*p++, dither[x & 3], &demand);
+        Pixel *pb = &back_buffer[b_offset + sx];
+        for(uint32_t x = 0u; x < width / 2; x++, pb += width) {
+            const uint32_t i = row + x;
+            *pb = gamma_pack(Blend ? lerp8888(a[i], b[i], t) : a[i], dither[x & 3], &demand);
         }
 
-        Pixel *a = &back_buffer[sx];
-        for(uint32_t x = 0u; x < width / 2; x++, a += width) {
-            *a = gamma_pack(*p++, dither[x & 3], &demand);
+        Pixel *pa = &back_buffer[sx];
+        for(uint32_t x = 0u; x < width / 2; x++, pa += width) {
+            const uint32_t i = row + width / 2 + x;
+            *pa = gamma_pack(Blend ? lerp8888(a[i], b[i], t) : a[i], dither[x & 3], &demand);
         }
     }
 
-    frame_demand = demand;
+    return demand;
+}
+
+/*
+Render the frame Python has finished drawing. `blend` mixes the two drawing
+surfaces, so a transition is one pass here rather than a pair of snapshots and a
+composite on core0.
+
+This reads the drawing surfaces directly, which is only safe because core0 is
+not drawing while it waits on the flip. Nothing else may render, so back_buffer
+only tracks the panel while the application keeps calling update() - see
+power_up(), which clears it.
+*/
+// Section named by hand: __no_inline_not_in_flash_func stringifies its argument
+// into the section name, and a parameter list with a space in it emits a
+// .section directive the assembler can't parse.
+void __noinline __not_in_flash("ArtMatrix_update") ArtMatrix::update(uint8_t blend) {
+    if(blend == 0u) {
+        frame_demand = render<false>(front_buffer, nullptr, 0u, panel_b_offset);
+    } else if(blend == 255u) {
+        frame_demand = render<false>(second_buffer, nullptr, 0u, panel_b_offset);
+    } else {
+        frame_demand = render<true>(front_buffer, second_buffer, blend, panel_b_offset);
+    }
 
     // Captured from the same gamma_lut as `demand`, in the same pass. The
     // servo changes brightness between flips, which rescales the whole table:
@@ -483,12 +483,30 @@ void __no_inline_not_in_flash_func(ArtMatrix::repaint(void)) {
 // GAMMA_14BIT is linear light, so scaling it is just a multiply. `scale` is
 // 1.10 fixed point. Nothing about the scan changes, so this can't flicker.
 void ArtMatrix::apply_gamma_scale(uint32_t scale) {
+    const uint32_t was_white = gamma_lut[255];
+
     gamma_lut[0] = 0;
     for(uint32_t i = 1u; i < 256u; i++) {
         const uint32_t v = (GAMMA_14BIT[i] * scale + 512) >> 10;
         // Hold non-zero inputs above black; the dither can still show a 1.
         gamma_lut[i] = (v == 0 && scale != 0) ? 1 : v;
     }
+
+    // frame_demand describes the last frame rendered, through the table as it
+    // was. Every entry moves by the same ratio, so carry the estimate across
+    // arithmetically: re-rendering to refresh it would need a retained copy of
+    // the frame, and the servo would otherwise read a demand and a demand_white
+    // from different brightnesses and oscillate on the difference.
+    if(was_white) {
+        frame_demand = (uint32_t)(((uint64_t)frame_demand * gamma_lut[255]) / was_white);
+    } else {
+        // Coming back from a blanked table there is no ratio to carry, and
+        // pairing the old demand with a fresh demand_white would hand the servo
+        // a lit fraction from before the panel went down. Zero it, and the
+        // demand > 0 guard holds the gains until a real frame lands.
+        frame_demand = 0;
+    }
+    frame_demand_white = 3u * width * height * (uint32_t)gamma_lut[255];
 }
 
 // Perceptual 0.0 - 1.0 to a fraction of full light. Equal steps of the input
@@ -582,8 +600,9 @@ void ArtMatrix::adc_capture_start(void) {
 }
 
 void ArtMatrix::power_up(void) {
-    // back_buffer still holds the last frame at its old scale, and nothing
-    // repaints it until Python next calls update().
+    // back_buffer still holds the last frame at its old scale, and only
+    // update() writes it, so the panel stays dark until the application draws
+    // again. Nothing here keeps a copy of the frame to put back.
     for(uint32_t i = 0u; i < width * height; i++) back_buffer[i] = 0;
     apply_gamma_scale(0);
 
@@ -742,8 +761,9 @@ void ArtMatrix::power_tick(void) {
         // measure the two plant gains and solve for the light that reaches each
         // limit. Slew toward the smaller. One step, no tuning.
         //
-        // demand and demand_white come from the same repaint; their ratio is
-        // the reciprocal of the lit fraction, and is free of brightness.
+        // demand and demand_white are held at the same brightness by
+        // apply_gamma_scale; their ratio is the reciprocal of the lit
+        // fraction, and is free of brightness.
         const uint32_t demand_white = frame_demand_white;
         const uint32_t demand = frame_demand;
         last_demand_white = demand_white;
@@ -819,17 +839,14 @@ void ArtMatrix::power_tick(void) {
         apply_brightness(value);
         brightness_applied = value;
 
-        // The OEn multiplier lands on the next row, but the gamma scale only
-        // reaches the panel through back_buffer - which update() writes, and
-        // which Python only calls when it draws. On a static screen the fine
-        // half of the brightness never applies at all, leaving the twelve
-        // coarse OEn steps to quantise it: a 3-14% jump in light each time the
-        // multiplier ticks over, which is exactly what a steady picture shows
-        // as flicker. Repaint it ourselves - from the committed frame, never
-        // from front_buffer, which Python may be part way through drawing.
-        // This also refreshes frame_demand, which would otherwise be pinned to
-        // whatever brightness was in force the last time the application drew.
-        repaint();
+        // The OEn multiplier lands on the next row; the gamma scale reaches the
+        // panel through back_buffer, so it applies on the application's next
+        // update(). apply_gamma_scale() carries frame_demand across in the
+        // meantime, so the servo keeps regulating either way.
+        //
+        // Re-rendering here would need a copy of the frame kept aside, since
+        // the drawing surfaces may be part way through a frame. That is a whole
+        // surface of SRAM to spend on the gap between two flips.
     }
 
     adc_capture_start();

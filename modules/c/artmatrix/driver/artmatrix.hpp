@@ -249,7 +249,6 @@ class ArtMatrix {
     void adc_capture_start(void);
     void power_up(void);
     void release(void);
-    void repaint(void);
     void apply_gamma_scale(uint32_t scale);
     void apply_brightness(float light);
 
