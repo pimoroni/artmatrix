@@ -23,8 +23,10 @@ What calibration measured, kept out of the class so it survives a MicroPython
 soft reset. That reconstructs ArtMatrix, which would otherwise walk the panel
 through white again every time someone runs a script.
 
-A hard reset zeroes these, and power_down() clears them, so the panel is only
-measured again when the LED supply has actually been away.
+A hard reset zeroes these, and power_tick() clears them where it concludes the
+supply is gone, so the panel is only measured again when there is a reason to.
+Note power_down() deliberately does not: it also runs on the orderly core1
+teardown that a soft reset performs, with the supply still connected.
 */
 static bool calibration_valid = false;
 static float calibration_gain_i = 0.0f;
@@ -719,10 +721,6 @@ void ArtMatrix::power_down(void) {
     calibrating = false;
     blank = true;
     panel_powered = false;
-
-    // The supply is gone. Whatever we measured describes a panel and a supply
-    // that may not be the ones that come back.
-    calibration_valid = false;
 }
 
 // Light the panel at whatever the current state permits. Split out because
@@ -878,6 +876,11 @@ void ArtMatrix::power_tick(void) {
         } else if(vled_counts < VLED_ABSENT_COUNTS && ++vled_absent_count >= VLED_DEBOUNCE) {
             // Still dead with the LEDs off, so the supply is gone rather than
             // overloaded. Stop driving before we leak into the panel again.
+            //
+            // Discard the calibration here and not in power_down(), which also
+            // runs on an orderly core1 teardown - which a MicroPython soft reset
+            // does every time, and which leaves the supply exactly where it was.
+            calibration_valid = false;
             power_down();
         }
 
