@@ -290,19 +290,25 @@ void ArtMatrix::release(void) {
     pio_sm_unclaim(pio_b, sm_row_b);
 }
 
-void ArtMatrix::get_power_stats(uint32_t counts[6], float headroom[5]) {
+void ArtMatrix::get_power_stats(uint32_t counts[7], float headroom[7]) {
     counts[0] = vled_open_counts;
     counts[1] = last_vled_mean;   // what the budgets are measured against
     counts[2] = last_vled_min;    // what the trip uses
-    counts[3] = last_cur;
-    counts[4] = cur_idle_counts;
-    counts[5] = calibrating ? 1u : 0u;
+    counts[3] = last_cur;         // what the budget is measured against
+    counts[4] = last_cur_peak;    // what the load switch limits on
+    counts[5] = cur_idle_counts;
+    counts[6] = calibrating ? 1u : 0u;
 
     headroom[0] = last_headroom_v;
     headroom[1] = last_headroom_i;
     headroom[2] = brightness_ceiling;
     headroom[3] = brightness_allowed;
     headroom[4] = brightness_applied;
+
+    // The white measurement itself, so a ceiling can be worked out by hand
+    // against a different budget without reflashing to find out.
+    headroom[5] = gain_i;
+    headroom[6] = gain_v;
 }
 
 uint16_t ArtMatrix::get_sensor(void) {
@@ -663,6 +669,7 @@ void ArtMatrix::power_tick(void) {
 
     uint32_t sum[3] = {0, 0, 0};
     uint32_t vled_sag = 4095;
+    uint32_t cur_peak = 0;
 
     for(uint32_t i = 0u; i < ADC_SAMPLES; i++) {
         const uint32_t sample = adc_buffer[i];
@@ -673,6 +680,12 @@ void ArtMatrix::power_tick(void) {
         // drags the rail under the trip point and back before a mean ever
         // moves. Averaging hides precisely the transient we must react to.
         if((i % 3) == 2u && sample < vled_sag) vled_sag = sample;
+
+        // The budget is enforced on the mean, but the load switch limits on the
+        // instantaneous current, and BCM puts most of the frame in the MSB
+        // plane. Reported only: this is the peak-to-mean ratio that says how
+        // much of the guard below CUR_LIMIT_COUNTS is doing real work.
+        if((i % 3) == 0u && sample > cur_peak) cur_peak = sample;
     }
 
     const uint32_t cur_counts = sum[0] / ADC_PER_INPUT;
@@ -689,6 +702,7 @@ void ArtMatrix::power_tick(void) {
     last_vled_mean = vled_counts;
     last_vled_min = vled_sag;
     last_cur = cur_counts;
+    last_cur_peak = cur_peak;
 
     if(!panel_powered) {
         // Debounce a supply that's still coming up.

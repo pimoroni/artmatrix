@@ -106,8 +106,8 @@ const uint ADC_PER_INPUT = ADC_SAMPLES / 3;
 constexpr float ADC_CLKDIV = 499.0f; // 48MHz / (499 + 1)
 
 /*
-VLED_SENSE hangs off a 10k/10k divider, so a count is 1.61mV at the pin and
-3.22mV of VLED. 5V reads 3102 of 4095.
+VLED_SENSE hangs off a 10k/10k divider. A count is 0.806mV at the pin (3.3V
+over 12 bits) and so 1.61mV of VLED. 5V reads 3102 of 4095.
 */
 const uint32_t VLED_GOOD_COUNTS = 2668;     // 4.3V, panel is happy
 const uint32_t VLED_TRIP_COUNTS = 2482;     // 4.0V, blank the output
@@ -122,14 +122,14 @@ rail at a current far below any sensible budget - absolute thresholds would
 either never engage or never let go.
 */
 // Sag is measured mean-to-mean, so this only has to cover ADC noise.
-const uint32_t VLED_SAG_NOISE_COUNTS = 2;      // ~6mV
+const uint32_t VLED_SAG_NOISE_COUNTS = 2;      // ~3mV
 
-const uint32_t VLED_DROOP_COUNTS = 124;        // 400mV
+const uint32_t VLED_DROOP_COUNTS = 124;        // 200mV
 
 // Guard band between where calibration stops and where the trip fires.
 // Calibration walks up until the rail reaches its droop target, so without this
 // the last step of that walk would be a brownout.
-const uint32_t VLED_TRIP_MARGIN_COUNTS = 124;  // 400mV
+const uint32_t VLED_TRIP_MARGIN_COUNTS = 124;  // 200mV
 
 /*
 CUR_SENSE is the TPS22811's IMON output. 0.1906 V/A appears across the whole
@@ -251,6 +251,7 @@ class ArtMatrix {
     uint32_t last_vled_mean = 0;
     uint32_t last_vled_min = 0;
     uint32_t last_cur = 0;
+    uint32_t last_cur_peak = 0;
     float gain_i = 0.0f;                     // all-white LED counts per light
     float gain_v = 0.0f;                     // all-white sag counts per light
     float cur_idle_avg = 0.0f;
@@ -356,7 +357,7 @@ class ArtMatrix {
 
     // Raw power state, so the operating point can be inspected from Python
     // rather than inferred. Counts, not volts/amps: 3.22mV and 4.23mA each.
-    void get_power_stats(uint32_t counts[6], float headroom[5]);
+    void get_power_stats(uint32_t counts[7], float headroom[7]);
 
     };
 }

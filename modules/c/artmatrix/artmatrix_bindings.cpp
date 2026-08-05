@@ -259,22 +259,23 @@ mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in) {
     return mp_const_none;
 }
 
-// (vled_open, vled_mean, vled_min, cur, cur_idle, calibrating,
-//  headroom_v, headroom_i, ceiling, allowed, applied)
-// Counts, not volts/amps: VLED 3.22mV per count, CUR 4.23mA per count. The
-// trailing floats are light, 0.0 - 1.0.
+// (vled_open, vled_mean, vled_min, cur, cur_peak, cur_idle, calibrating,
+//  headroom_v, headroom_i, ceiling, allowed, applied, gain_i, gain_v)
+// Counts, not volts/amps: VLED 1.61mV per count, CUR 8.46mA per count. The
+// three light values are 0.0 - 1.0; the gains are counts per unit light on an
+// all-white screen, which is what calibration measured.
 mp_obj_t artmatrix_power_stats(mp_obj_t self_in) {
     (void)self_in;
 
-    uint32_t counts[6];
-    float headroom[5];
+    uint32_t counts[7];
+    float headroom[7];
     artmatrix_obj.artmatrix->get_power_stats(counts, headroom);
 
-    mp_obj_t out[11];
-    for(uint i = 0u; i < 6u; i++) out[i] = mp_obj_new_int_from_uint(counts[i]);
-    for(uint i = 0u; i < 5u; i++) out[6 + i] = mp_obj_new_float(headroom[i]);
+    mp_obj_t out[14];
+    for(uint i = 0u; i < 7u; i++) out[i] = mp_obj_new_int_from_uint(counts[i]);
+    for(uint i = 0u; i < 7u; i++) out[7 + i] = mp_obj_new_float(headroom[i]);
 
-    return mp_obj_new_tuple(11, out);
+    return mp_obj_new_tuple(14, out);
 }
 
 // display.force_on() to drive past the measured brightness ceiling,
