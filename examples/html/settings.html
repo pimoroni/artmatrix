@@ -33,12 +33,18 @@
 <hr>
 
 <script>
-    function loadPlugins() {
+    // The index is fetched in the background on the device, so a cold boot can
+    // answer "pending" before the first refresh lands.
+    function loadIndex(attempt = 0) {
         fetch("/index.json")
         .then((response) => response.json())
         .then((data) => {
+            if (data.pending) {
+                if (attempt < 10) setTimeout(() => loadIndex(attempt + 1), 2000);
+                return;
+            }
+            var list = document.getElementById("selected-plugin");
             for(let plugin of data.plugins) {
-                var list = document.getElementById("selected-plugin");
                 var item = document.createElement("option");
                 item.textContent = plugin
                 .split('_')
@@ -48,10 +54,15 @@
                 list.appendChild(item);
             }
         });
+    }
 
-        fetch("/plugins.json")
+    // Re-fetch just the plugin list after a mutation. A full page reload cost the
+    // stylesheet and the index fetch again for every click.
+    function loadPluginList() {
+        return fetch("/plugins.json")
         .then((response) => response.json())
         .then((data) => {
+            document.getElementById("all_plugins").replaceChildren();
             for (const key of Object.keys(data)) {
                 for (const plugin of data[key]) {
 
@@ -68,7 +79,7 @@
                     move_pos_up.onclick = function() {
                         fetch(`/position?plugin=${plugin}&action=up`, {
                             method: 'POST',
-                        }).then(() => location.reload());
+                        }).then(() => loadPluginList());
                     }
                     
                     var move_pos_down = document.createElement("button");
@@ -77,7 +88,7 @@
                     move_pos_down.onclick = function() {
                         fetch(`/position?plugin=${plugin}&action=down`, {
                             method: 'POST',
-                        }).then(() => location.reload());
+                        }).then(() => loadPluginList());
                     }
 
                     var remove_link = document.createElement("button");
@@ -86,7 +97,7 @@
                     remove_link.onclick = function() {
                         fetch(`/remove?plugin=${plugin}`, {
                             method: 'POST',
-                        }).then(() => location.reload());
+                        }).then(() => loadPluginList());
                     }
 
                     var enable_toggle = document.createElement("input");
@@ -99,9 +110,7 @@
                         fetch(`/active?plugin=${plugin}&state=${this.checked}`, {
                             method: 'POST',
                         })
-                        .then(() => {
-                            document.location.reload();
-                        })
+                        .then(() => loadPluginList());
                     });
 
                     if (plugin) {
@@ -133,5 +142,6 @@
         });
     }
 
-    loadPlugins();
+    loadIndex();
+    loadPluginList();
 </script>

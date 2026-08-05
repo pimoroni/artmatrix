@@ -5,9 +5,9 @@ import os
 import sys
 import time
 
+import fetch
 import mip
 import ntptime
-import requests
 from easing import easeOutCubic
 from phew import logging, redirect, render_template, serve_file, server
 
@@ -40,7 +40,15 @@ if needs_provisioning:
 import wifi  # noqa E402
 
 # Location of plugin index
-INDEX_URL = "https://raw.githubusercontent.com/pimoroni/monkey-banana/refs/heads/main/index.json"
+INDEX_HOST = "raw.githubusercontent.com"
+INDEX_PATH = "/pimoroni/monkey-banana/refs/heads/main/index.json"
+INDEX_CACHE = "/index-cache.json"
+INDEX_INTERVAL = 15 * 60
+
+# The index is fetched in the background and served from the cache. A blocking
+# requests.get() here froze the display and every other connection for the whole
+# TLS round trip, on every settings page load.
+index_fetch = fetch.AsyncFetch(INDEX_HOST)
 
 # delay between plugins
 delay = int(config.delay)
@@ -282,10 +290,28 @@ def plugins(_request):
 
 @server.route("/index.json")
 def networks(_request):
-    # get the index of available plugins and return it
-    r = requests.get(INDEX_URL)
-    j = r.json()
-    return json.dumps(j), 200, "application/json"
+    # serve the cached index; refresh_index() keeps it current in the background
+    try:
+        with open(INDEX_CACHE, "r") as file:
+            return file.read(), 200, "application/json"
+    except OSError:
+        # nothing cached yet, tell the page to come back
+        return json.dumps({"plugins": [], "pending": True}), 200, "application/json"
+
+
+async def refresh_index():
+    index_fetch.fetch(INDEX_PATH, file=INDEX_CACHE, interval=INDEX_INTERVAL)
+
+    while True:
+        try:
+            index_fetch.update()
+            await asyncio.sleep_ms(100)
+        except Exception as e:  # noqa: BLE001
+            # a failed refresh leaves the previous cache in place. Back off, or a
+            # persistent failure retries every tick: update() only stamps the
+            # interval on a completed fetch.
+            print("index refresh failed:", e)
+            await asyncio.sleep(60)
 
 
 def draw_wifi_icon(col):
@@ -415,4 +441,5 @@ print(config.wifi_hostname)
 DOMAIN = f"{config.wifi_hostname}.local"
 
 loop.create_task(draw())
+loop.create_task(refresh_index())
 server.run(host="0.0.0.0", port=80)
