@@ -71,11 +71,19 @@ const uint CALIBRATE_DWELL = 1;
 const uint CALIBRATE_OPEN_DWELL = 2;
 
 /*
-Back off the point calibration stopped at. It runs on a cold panel, and LED
-forward voltage falls as that panel warms, so the same light draws more current
-an hour in. This is the margin that keeps the backstop from having to fire.
+Back off the point calibration stopped at.
+
+Not for warm-up: an hour of all-white at the ceiling moved the panel's current
+by +0.06%, against a noise floor of +/-0.18% on the mean. The drivers are
+constant current, so forward voltage falling as the panel heats does not change
+what it draws.
+
+What this covers is calibration's own error. Its gain comes from one averaged
+tick at the stop point, and measured against the same panel in sustained use it
+reads about 3% low - the optimistic direction, since a low gain is a high
+ceiling. That bias plus the ~1% run-to-run scatter, with a little over.
 */
-constexpr float CALIBRATE_MARGIN = 0.9f;
+constexpr float CALIBRATE_MARGIN = 0.95f;
 
 /*
 The ceiling already assumes every pixel is white, so no picture should reach it.
