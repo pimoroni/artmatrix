@@ -9,6 +9,11 @@ namespace pimoroni {
 static uint32_t __attribute__ ((aligned (4))) front_buffer[width * height];
 static Pixel __attribute__ ((aligned (4))) back_buffer[width * height];
 
+// A second drawing surface, so a transition can hand the outgoing and incoming
+// plugins a surface each and blend them here instead of freezing both into
+// snapshots on core0. See update().
+static uint32_t __attribute__ ((aligned (4))) second_buffer[width * height];
+
 // front_buffer is what Python draws into, through memoryview(display), so it is
 // only a whole frame at the instant update() is called. The servo repaints
 // whenever it changes the gamma scale, which is any 4ms - reading front_buffer
@@ -374,6 +379,10 @@ uint32_t* ArtMatrix::get_framebuffer(void) {
     return front_buffer;
 }
 
+uint32_t* ArtMatrix::get_surface(uint32_t index) {
+    return index ? second_buffer : front_buffer;
+}
+
 // gamma_lut holds 14 bits; the panel shows the top 10. `d` is 0..15, so the
 // discarded bits round up in one pixel of the 4x4 cell per unit. Peak entry is
 // 1023 << 4, so (16368 + 15) >> 4 == 1023 and this can't overflow its field.
@@ -397,9 +406,42 @@ static inline uint32_t gamma_pack(uint32_t rgb, uint32_t d, uint32_t *demand) {
     return ((r + d) >> 4) | (((g + d) >> 4) << 10) | (((b + d) >> 4) << 20);
 }
 
-// Take the frame Python has finished drawing, then render it.
-void __no_inline_not_in_flash_func(ArtMatrix::update(void)) {
-    for(uint32_t i = 0u; i < width * height; i++) committed_buffer[i] = front_buffer[i];
+// Mix two packed pixels, t = 0 giving all `a` and 255 all `b`. Both 8-bit lanes
+// of each half-word hold at most 255 * 255, so the channels can't bleed into
+// each other and the pair can be done in one multiply. The alpha byte rides
+// along in the odd lane; gamma_pack ignores it.
+static inline uint32_t lerp8888(uint32_t a, uint32_t b, uint32_t t) {
+    const uint32_t it = 255u - t;
+
+    uint32_t rb = ((a & 0x00ff00ffu) * it) + ((b & 0x00ff00ffu) * t);
+    uint32_t ga = (((a >> 8) & 0x00ff00ffu) * it) + (((b >> 8) & 0x00ff00ffu) * t);
+
+    // x / 255, as (x + 128 + (x >> 8)) >> 8 per lane
+    rb = ((rb + 0x00800080u + ((rb >> 8) & 0x00ff00ffu)) >> 8) & 0x00ff00ffu;
+    ga = ((ga + 0x00800080u + ((ga >> 8) & 0x00ff00ffu))) & 0xff00ff00u;
+
+    return rb | ga;
+}
+
+static void __no_inline_not_in_flash_func(commit_blend)(const uint32_t *a, const uint32_t *b, uint32_t t) {
+    for(uint32_t i = 0u; i < width * height; i++) committed_buffer[i] = lerp8888(a[i], b[i], t);
+}
+
+// Take the frame Python has finished drawing, then render it. `blend` mixes the
+// two drawing surfaces, so a plugin transition costs core1 one pass here rather
+// than costing core0 a pair of snapshots and a composite. The end values take
+// the plain copy, which is every frame outside a transition.
+//
+// Section named by hand: __no_inline_not_in_flash_func stringifies its argument
+// into the section name, and a parameter list with a space in it emits a
+// .section directive the assembler can't parse.
+void __noinline __not_in_flash("ArtMatrix_update") ArtMatrix::update(uint8_t blend) {
+    if(blend == 0u || blend == 255u) {
+        const uint32_t *src = blend ? second_buffer : front_buffer;
+        for(uint32_t i = 0u; i < width * height; i++) committed_buffer[i] = src[i];
+    } else {
+        commit_blend(front_buffer, second_buffer, blend);
+    }
     repaint();
 }
 

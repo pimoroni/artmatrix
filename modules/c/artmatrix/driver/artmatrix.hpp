@@ -319,7 +319,8 @@ class ArtMatrix {
     void dma_complete();
 
     uint32_t* get_framebuffer(void);
-    void update(void);
+    uint32_t* get_surface(uint32_t index);
+    void update(uint8_t blend = 0u);
 
     void begin(irq_handler_t handler);
     void power_tick(void);

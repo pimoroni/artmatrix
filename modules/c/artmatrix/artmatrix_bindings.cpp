@@ -79,6 +79,9 @@ typedef struct _artmatrix_obj_t {
     volatile bool exit_core1;
     volatile bool flip;
     bool blocking;
+    // Mix of the two drawing surfaces for the next flip. Set before flip, so
+    // core1 reads a value that belongs to the frame it is about to commit.
+    volatile uint8_t blend;
 } _artmatrix_obj_t;
 
 static _artmatrix_obj_t artmatrix_obj;
@@ -112,7 +115,7 @@ void artmatrix_core1_entry() {
         artmatrix_obj.artmatrix->power_tick();
 
         if (artmatrix_obj.flip) {
-            artmatrix_obj.artmatrix->update();
+            artmatrix_obj.artmatrix->update(artmatrix_obj.blend);
             artmatrix_obj.flip = false;
             continue;
         }
@@ -205,6 +208,7 @@ mp_obj_t artmatrix_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_k
     artmatrix_obj.artmatrix = new(artmatrix_buffer) ArtMatrix();
     artmatrix_obj.flip = false;
     artmatrix_obj.blocking = true;
+    artmatrix_obj.blend = 0u;
 
     artmatrix_core1_start();
 
@@ -269,15 +273,24 @@ mp_obj_t artmatrix_sensor(mp_obj_t self_in) {
     return mp_obj_new_int(artmatrix_obj.artmatrix->get_sensor());
 }
 
-mp_obj_t artmatrix_update(mp_obj_t self_in) {
-    (void)self_in;
-    //artmatrix_obj.artmatrix->update();
+// display.update(blend=0). blend mixes surface 0 into surface 1, so a plugin
+// transition is a core1 pass over the frame it already copies.
+mp_obj_t artmatrix_update(size_t n_args, const mp_obj_t *args) {
+    mp_int_t blend = 0;
+    if(n_args >= 2) {
+        blend = mp_obj_get_int(args[1]);
+        if(blend < 0 || blend > 255) {
+            mp_raise_ValueError(MP_ERROR_TEXT("blend must be 0 to 255"));
+        }
+    }
 
     artmatrix_debug("wait for core1 flip\n");
     while(artmatrix_obj.flip) {
         mp_event_handle_nowait();
     };
     artmatrix_debug("trigger core1 flip\n");
+    // Ordered before the flip, so core1 can't pick up the previous frame's mix.
+    artmatrix_obj.blend = (uint8_t)blend;
     artmatrix_obj.flip = true;
     artmatrix_debug("sync to core1\n");
     __sev();
@@ -290,6 +303,20 @@ mp_obj_t artmatrix_update(mp_obj_t self_in) {
     };
 
     return mp_const_none;
+}
+
+// display.surface(n) -> memoryview of drawing surface n, to wrap in an image().
+// Surface 0 is the same buffer as memoryview(display).
+mp_obj_t artmatrix_surface(mp_obj_t self_in, mp_obj_t index_in) {
+    (void)self_in;
+
+    mp_int_t index = mp_obj_get_int(index_in);
+    if(index < 0 || index > 1) {
+        mp_raise_ValueError(MP_ERROR_TEXT("surface index must be 0 or 1"));
+    }
+
+    return mp_obj_new_memoryview('B', ARTMATRIX_WIDTH * ARTMATRIX_HEIGHT * 4,
+                                 artmatrix_obj.artmatrix->get_surface((uint32_t)index));
 }
 
 // Support for `memoryview(display)`
