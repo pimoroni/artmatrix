@@ -260,6 +260,7 @@ class ArtMatrix {
     float last_headroom_i = 0.0f;
     volatile float brightness_target = 1.0f; // written by core0
     volatile bool force_light = false;       // written by core0
+    volatile bool recalibrate_request = false; // written by core0
     float brightness_ceiling = 0.0f;         // core1, LIGHT an all-white screen may have
     float ceiling_derate = 1.0f;             // core1, what the trips have taken off it
     float brightness_allowed = 0.0f;         // core1, LIGHT the supply will hold
@@ -273,6 +274,8 @@ class ArtMatrix {
     void apply_gamma_scale(uint32_t scale);
     void apply_brightness(float light);
     void update_ceiling(float led_budget, float sag_budget);
+    void store_calibration(void);
+    void finish_calibration(float led_budget, float sag_budget);
     void fill_back_buffer(uint32_t packed);
 
     // DMA & PIO
@@ -353,6 +356,7 @@ class ArtMatrix {
     void set_brightness(float value);
     void set_current_limit(float amps);
     void set_force_on(bool force);
+    void recalibrate(void);
     uint16_t get_sensor(void);
 
     // Raw power state, so the operating point can be inspected from Python

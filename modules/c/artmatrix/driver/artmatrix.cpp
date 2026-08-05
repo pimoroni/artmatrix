@@ -18,6 +18,19 @@ static uint32_t __attribute__ ((aligned (4))) second_buffer[width * height];
 // buffer the bindings reserve for it.
 static uint16_t __attribute__ ((aligned (4))) adc_buffer[ADC_SAMPLES];
 
+/*
+What calibration measured, kept out of the class so it survives a MicroPython
+soft reset. That reconstructs ArtMatrix, which would otherwise walk the panel
+through white again every time someone runs a script.
+
+A hard reset zeroes these, and power_down() clears them, so the panel is only
+measured again when the LED supply has actually been away.
+*/
+static bool calibration_valid = false;
+static float calibration_gain_i = 0.0f;
+static float calibration_gain_v = 0.0f;
+static float calibration_derate = 1.0f;
+
 // GAMMA_14BIT scaled by set_brightness(). Save ~0.12ms per flip by keeping it
 // in SRAM.
 static uint16_t __not_in_flash("gamma_table") gamma_lut[256];
@@ -559,6 +572,26 @@ void ArtMatrix::update_ceiling(float led_budget, float sag_budget) {
     brightness_ceiling = light;
 }
 
+// Hold on to a measurement so a soft reset can reuse it. The derate rides along:
+// a supply that has already tripped should come back derated, not optimistic.
+void ArtMatrix::store_calibration(void) {
+    calibration_gain_i = gain_i;
+    calibration_gain_v = gain_v;
+    calibration_derate = ceiling_derate;
+    calibration_valid = true;
+}
+
+// Leave the calibration state and put the panel back in the application's hands.
+void ArtMatrix::finish_calibration(float led_budget, float sag_budget) {
+    calibrating = false;
+
+    // Back to black. Only update() writes back_buffer from here.
+    fill_back_buffer(0);
+
+    update_ceiling(led_budget, sag_budget);
+    brightness_allowed = brightness_ceiling;
+}
+
 /*
 Any core. Ignore the measured ceiling and drive at whatever set_brightness()
 asks for, so a panel that has mis-calibrated can still be seen and debugged.
@@ -570,6 +603,18 @@ hold comes back by itself at the measured ceiling.
 */
 void ArtMatrix::set_force_on(bool force) {
     force_light = force;
+}
+
+/*
+Any core. Throw away the stored calibration and measure the panel again, which
+means another walk through white. For a supply or panel swapped while powered,
+where nothing has told us the world changed.
+
+The flag is picked up by core1 rather than acted on here: power_tick() owns
+every piece of state this touches.
+*/
+void ArtMatrix::recalibrate(void) {
+    recalibrate_request = true;
 }
 
 // Any core. How much the panel may draw in total, LEDs and idle together.
@@ -631,9 +676,10 @@ void ArtMatrix::power_up(void) {
     gain_v = 0.0f;
     oe_index = 0;
 
-    // Measure this supply before showing anything on it. Holding at black for
-    // the first stretch is what gives the open-circuit rail and the panel's
-    // idle draw, which everything below is measured against.
+    // Hold at black for the first stretch either way: the open-circuit rail and
+    // the panel's idle draw belong to this power-up, and everything below is
+    // measured against them. Only the white walk is skipped when a previous
+    // calibration on this supply is still good.
     calibrating = true;
     calibrate_dwell = CALIBRATE_OPEN_DWELL;
     over_budget_count = 0;
@@ -660,6 +706,10 @@ void ArtMatrix::power_down(void) {
     calibrating = false;
     blank = true;
     panel_powered = false;
+
+    // The supply is gone. Whatever we measured describes a panel and a supply
+    // that may not be the ones that come back.
+    calibration_valid = false;
 }
 
 // Core1. Cheap to call often; the work only happens once a capture lands.
@@ -721,6 +771,22 @@ void ArtMatrix::power_tick(void) {
         settle_count--;
         adc_capture_start();
         return;
+    }
+
+    if(recalibrate_request) {
+        recalibrate_request = false;
+        calibration_valid = false;
+
+        if(!calibrating) {
+            gain_i = 0.0f;
+            gain_v = 0.0f;
+            ceiling_derate = 1.0f;
+            brightness_ceiling = 0.0f;
+            brightness_allowed = 0.0f;
+            over_budget_count = 0;
+            calibrating = true;
+            calibrate_dwell = CALIBRATE_OPEN_DWELL;
+        }
     }
 
     if(vled_counts >= VLED_ABSENT_COUNTS) vled_absent_count = 0;
@@ -795,14 +861,14 @@ void ArtMatrix::power_tick(void) {
                 gain_i = brightness_allowed > 0.0f ? led / brightness_allowed : 0.0f;
                 gain_v = brightness_allowed > 0.0f ? sag / brightness_allowed : 0.0f;
                 ceiling_derate = TRIP_DERATE;
-                calibrating = false;
-                fill_back_buffer(0);
-            } else if(!was_forced) {
-                ceiling_derate *= TRIP_DERATE;
+                store_calibration();
+                finish_calibration(led_budget, sag_budget);
+            } else {
+                if(!was_forced) ceiling_derate *= TRIP_DERATE;
+                store_calibration();
+                update_ceiling(led_budget, sag_budget);
+                brightness_allowed = brightness_ceiling;
             }
-
-            update_ceiling(led_budget, sag_budget);
-            brightness_allowed = brightness_ceiling;
         } else if(vled_counts < VLED_ABSENT_COUNTS && ++vled_absent_count >= VLED_DEBOUNCE) {
             // Still dead with the LEDs off, so the supply is gone rather than
             // overloaded. Stop driving before we leak into the panel again.
@@ -824,17 +890,19 @@ void ArtMatrix::power_tick(void) {
         // reads at the stopping point is what a fully lit panel costs here.
         if(calibrate_dwell) {
             calibrate_dwell--;
+        } else if(calibration_valid) {
+            // Already measured on this supply, and the dwell above has just
+            // refreshed the rail and idle draw the budgets are taken against.
+            // Nothing to gain from lighting the panel again.
+            gain_i = calibration_gain_i;
+            gain_v = calibration_gain_v;
+            ceiling_derate = calibration_derate;
+            finish_calibration(led_budget, sag_budget);
         } else if(brightness_allowed > 0.0f && (over_budget || brightness_allowed >= 1.0f)) {
             gain_i = led / brightness_allowed;
             gain_v = sag / brightness_allowed;
-            calibrating = false;
-
-            // Back to black. Only update() writes back_buffer from here, and
-            // the application has not drawn a frame yet.
-            fill_back_buffer(0);
-
-            update_ceiling(led_budget, sag_budget);
-            brightness_allowed = brightness_ceiling;
+            store_calibration();
+            finish_calibration(led_budget, sag_budget);
         } else {
             brightness_allowed += CALIBRATE_STEP;
             if(brightness_allowed > 1.0f) brightness_allowed = 1.0f;

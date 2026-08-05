@@ -11,6 +11,7 @@ MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_hold_obj, artmatrix_set_hold);
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_brightness_obj, artmatrix_set_brightness);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_sensor_obj, artmatrix_sensor);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_power_stats_obj, artmatrix_power_stats);
+MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_calibrate_obj, artmatrix_calibrate);
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_current_limit_obj, artmatrix_set_current_limit);
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(artmatrix_force_on_obj, 1, 2, artmatrix_force_on);
 
@@ -26,6 +27,7 @@ static const mp_rom_map_elem_t artmatrix_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_set_brightness), MP_ROM_PTR(&artmatrix_set_brightness_obj) },
     { MP_ROM_QSTR(MP_QSTR_sensor), MP_ROM_PTR(&artmatrix_sensor_obj) },
     { MP_ROM_QSTR(MP_QSTR_power_stats), MP_ROM_PTR(&artmatrix_power_stats_obj) },
+    { MP_ROM_QSTR(MP_QSTR_calibrate), MP_ROM_PTR(&artmatrix_calibrate_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_current_limit), MP_ROM_PTR(&artmatrix_set_current_limit_obj) },
     { MP_ROM_QSTR(MP_QSTR_force_on), MP_ROM_PTR(&artmatrix_force_on_obj) },
 };

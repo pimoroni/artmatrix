@@ -287,6 +287,15 @@ mp_obj_t artmatrix_force_on(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
+// display.calibrate() to discard the stored measurement and walk the panel
+// through white again. Otherwise a calibration survives soft reset, so running a
+// script does not flash the display every time.
+mp_obj_t artmatrix_calibrate(mp_obj_t self_in) {
+    (void)self_in;
+    artmatrix_obj.artmatrix->recalibrate();
+    return mp_const_none;
+}
+
 // Total panel draw allowed, in amps. Clamped to 3.0A: the load switch limits at
 // 3.3A whatever the supply can deliver.
 mp_obj_t artmatrix_set_current_limit(mp_obj_t self_in, mp_obj_t amps_in) {
