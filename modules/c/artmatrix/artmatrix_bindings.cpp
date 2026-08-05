@@ -120,7 +120,10 @@ void artmatrix_core1_entry() {
     while (!artmatrix_obj.exit_core1) {
         artmatrix_obj.artmatrix->power_tick();
 
-        if (artmatrix_obj.flip) {
+        // Hold the flip through calibration instead of dropping it: back_buffer
+        // is the white frame being measured, and the boot screen is drawn once
+        // and then left up while the application connects to wifi.
+        if (artmatrix_obj.flip && !artmatrix_obj.artmatrix->is_calibrating()) {
             artmatrix_obj.artmatrix->update(artmatrix_obj.blend);
             artmatrix_obj.flip = false;
             continue;
@@ -256,25 +259,27 @@ mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in) {
     return mp_const_none;
 }
 
-// (vled_open, vled_mean, vled_min, cur, cur_idle, demand, demand_white,
-//  headroom_v, headroom_i, allowed, applied)
-// Counts, not volts/amps: VLED 3.22mV per count, CUR 4.23mA per count.
+// (vled_open, vled_mean, vled_min, cur, cur_idle, calibrating,
+//  headroom_v, headroom_i, ceiling, allowed, applied)
+// Counts, not volts/amps: VLED 3.22mV per count, CUR 4.23mA per count. The
+// trailing floats are light, 0.0 - 1.0.
 mp_obj_t artmatrix_power_stats(mp_obj_t self_in) {
     (void)self_in;
 
-    uint32_t counts[7];
-    float headroom[4];
+    uint32_t counts[6];
+    float headroom[5];
     artmatrix_obj.artmatrix->get_power_stats(counts, headroom);
 
     mp_obj_t out[11];
-    for(uint i = 0u; i < 7u; i++) out[i] = mp_obj_new_int_from_uint(counts[i]);
-    for(uint i = 0u; i < 4u; i++) out[7 + i] = mp_obj_new_float(headroom[i]);
+    for(uint i = 0u; i < 6u; i++) out[i] = mp_obj_new_int_from_uint(counts[i]);
+    for(uint i = 0u; i < 5u; i++) out[6 + i] = mp_obj_new_float(headroom[i]);
 
     return mp_obj_new_tuple(11, out);
 }
 
-// display.force_on() to override the servo's brightness cap, force_on(False) to
-// hand control back. Does not override the brownout trip or the VLED gate.
+// display.force_on() to drive past the measured brightness ceiling,
+// force_on(False) to hand control back. Does not override the brownout trip or
+// the VLED gate, and the trip clears it.
 mp_obj_t artmatrix_force_on(size_t n_args, const mp_obj_t *args) {
     const bool force = n_args < 2 || mp_obj_is_true(args[1]);
     artmatrix_obj.artmatrix->set_force_on(force);

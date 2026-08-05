@@ -290,19 +290,19 @@ void ArtMatrix::release(void) {
     pio_sm_unclaim(pio_b, sm_row_b);
 }
 
-void ArtMatrix::get_power_stats(uint32_t counts[7], float headroom[4]) {
+void ArtMatrix::get_power_stats(uint32_t counts[6], float headroom[5]) {
     counts[0] = vled_open_counts;
-    counts[1] = last_vled_mean;   // what the servo uses
+    counts[1] = last_vled_mean;   // what the budgets are measured against
     counts[2] = last_vled_min;    // what the trip uses
     counts[3] = last_cur;
     counts[4] = cur_idle_counts;
-    counts[5] = frame_demand;
-    counts[6] = last_demand_white;
+    counts[5] = calibrating ? 1u : 0u;
 
     headroom[0] = last_headroom_v;
     headroom[1] = last_headroom_i;
-    headroom[2] = brightness_allowed;
-    headroom[3] = brightness_applied;
+    headroom[2] = brightness_ceiling;
+    headroom[3] = brightness_allowed;
+    headroom[4] = brightness_applied;
 }
 
 uint16_t ArtMatrix::get_sensor(void) {
@@ -311,6 +311,12 @@ uint16_t ArtMatrix::get_sensor(void) {
 
 bool ArtMatrix::is_powered(void) {
     return panel_powered;
+}
+
+// While set, back_buffer holds the frame calibration is measuring and update()
+// must leave it alone.
+bool ArtMatrix::is_calibrating(void) {
+    return calibrating;
 }
 
 void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
@@ -380,22 +386,10 @@ uint32_t* ArtMatrix::get_surface(uint32_t index) {
 // gamma_lut holds 14 bits; the panel shows the top 10. `d` is 0..15, so the
 // discarded bits round up in one pixel of the 4x4 cell per unit. Peak entry is
 // 1023 << 4, so (16368 + 15) >> 4 == 1023 and this can't overflow its field.
-//
-// Accumulates the channel values as it goes. Panel current is proportional to
-// duty(brightness) times this sum, which is what lets power_tick() ask "what
-// would all-white cost at this brightness" instead of only ever measuring the
-// frame in front of it.
-static inline uint32_t gamma_pack(uint32_t rgb, uint32_t d, uint32_t *demand) {
+static inline uint32_t gamma_pack(uint32_t rgb, uint32_t d) {
     const uint32_t r = gamma_lut[rgb & 0xff];
     const uint32_t g = gamma_lut[(rgb >> 8) & 0xff];
     const uint32_t b = gamma_lut[(rgb >> 16) & 0xff];
-
-    // Accumulate before the shift. The panel's current follows the shifted
-    // values, but at low brightness most of those quantise to zero while
-    // demand_white does not, so the ratio explodes and the loop dims itself
-    // into the floor. The 14-bit values keep the ratio meaningful, and the
-    // dither means they are what the light averages out to anyway.
-    *demand += r + g + b;
 
     return ((r + d) >> 4) | (((g + d) >> 4) << 10) | (((b + d) >> 4) << 20);
 }
@@ -417,14 +411,12 @@ static inline uint32_t lerp8888(uint32_t a, uint32_t b, uint32_t t) {
     return rb | ga;
 }
 
-// Walk a frame through the gamma table into back_buffer, returning its demand.
-// Blend is a template parameter so the common case carries no per-pixel test,
-// and always_inline puts both instantiations in update()'s SRAM section.
+// Walk a frame through the gamma table into back_buffer. Blend is a template
+// parameter so the common case carries no per-pixel test, and always_inline
+// puts both instantiations in update()'s SRAM section.
 template<bool Blend>
 static inline __attribute__((always_inline))
-uint32_t render(const uint32_t *a, const uint32_t *b, uint32_t t, uint32_t b_offset) {
-    uint32_t demand = 0u;
-
+void render(const uint32_t *a, const uint32_t *b, uint32_t t, uint32_t b_offset) {
     for(uint32_t y = 0u; y < height; y++) {
         // We are swapping X and Y to achieve a 90 degree rotation
         // Mirror along the Y axis (top to bottom)
@@ -438,17 +430,15 @@ uint32_t render(const uint32_t *a, const uint32_t *b, uint32_t t, uint32_t b_off
         Pixel *pb = &back_buffer[b_offset + sx];
         for(uint32_t x = 0u; x < width / 2; x++, pb += width) {
             const uint32_t i = row + x;
-            *pb = gamma_pack(Blend ? lerp8888(a[i], b[i], t) : a[i], dither[x & 3], &demand);
+            *pb = gamma_pack(Blend ? lerp8888(a[i], b[i], t) : a[i], dither[x & 3]);
         }
 
         Pixel *pa = &back_buffer[sx];
         for(uint32_t x = 0u; x < width / 2; x++, pa += width) {
             const uint32_t i = row + width / 2 + x;
-            *pa = gamma_pack(Blend ? lerp8888(a[i], b[i], t) : a[i], dither[x & 3], &demand);
+            *pa = gamma_pack(Blend ? lerp8888(a[i], b[i], t) : a[i], dither[x & 3]);
         }
     }
-
-    return demand;
 }
 
 /*
@@ -460,24 +450,22 @@ This reads the drawing surfaces directly, which is only safe because core0 is
 not drawing while it waits on the flip. Nothing else may render, so back_buffer
 only tracks the panel while the application keeps calling update() - see
 power_up(), which clears it.
+
+Must not be called while is_calibrating(): back_buffer holds the white frame
+being measured. The caller holds the flip until calibration ends rather than
+dropping it, so the first thing drawn at boot still reaches the panel.
 */
 // Section named by hand: __no_inline_not_in_flash_func stringifies its argument
 // into the section name, and a parameter list with a space in it emits a
 // .section directive the assembler can't parse.
 void __noinline __not_in_flash("ArtMatrix_update") ArtMatrix::update(uint8_t blend) {
     if(blend == 0u) {
-        frame_demand = render<false>(front_buffer, nullptr, 0u, panel_b_offset);
+        render<false>(front_buffer, nullptr, 0u, panel_b_offset);
     } else if(blend == 255u) {
-        frame_demand = render<false>(second_buffer, nullptr, 0u, panel_b_offset);
+        render<false>(second_buffer, nullptr, 0u, panel_b_offset);
     } else {
-        frame_demand = render<true>(front_buffer, second_buffer, blend, panel_b_offset);
+        render<true>(front_buffer, second_buffer, blend, panel_b_offset);
     }
-
-    // Captured from the same gamma_lut as `demand`, in the same pass. The
-    // servo changes brightness between flips, which rescales the whole table:
-    // pairing a fresh demand_white with a stale demand skews the ratio by
-    // exactly that change, and the loop oscillates at the frame rate.
-    frame_demand_white = 3u * width * height * (uint32_t)gamma_lut[255];
 }
 
 // GAMMA_14BIT is linear light, so scaling it is just a multiply. `scale` is
@@ -489,13 +477,19 @@ void ArtMatrix::apply_gamma_scale(uint32_t scale) {
         // Hold non-zero inputs above black; the dither can still show a 1.
         gamma_lut[i] = (v == 0 && scale != 0) ? 1 : v;
     }
+}
 
-    // frame_demand and frame_demand_white are deliberately left alone. The servo
-    // only wants their ratio, which is the reciprocal of the lit fraction and so
-    // free of brightness: rescaling them here to track the table would be a
-    // truncating divide every few milliseconds, and the error only ever rounds
-    // down. Both are written together by update(), which is what keeps them at
-    // one brightness; going stale between flips costs the servo nothing.
+// Uniform fill of the scan buffer, in the layout gamma_pack produces.
+void ArtMatrix::fill_back_buffer(uint32_t packed) {
+    for(uint32_t i = 0u; i < width * height; i++) back_buffer[i] = packed;
+}
+
+// White through the gamma table as it currently stands, so calibration has to
+// rewrite it whenever the scale moves. The dither is dropped: every pixel is
+// the same value, and there is nothing for it to resolve.
+static inline uint32_t packed_white(void) {
+    const uint32_t c = (uint32_t)gamma_lut[255] >> 4;
+    return c | (c << 10) | (c << 20);
 }
 
 // Perceptual 0.0 - 1.0 to a fraction of full light. Equal steps of the input
@@ -506,8 +500,8 @@ static float perceptual_to_light(float value) {
     return l > 8.0f ? t * t * t : l / 903.3f;
 }
 
-// Takes a fraction of full light, NOT a perceptual value. The servo regulates
-// current and voltage, both linear in light, so it must control light. Driving
+// Takes a fraction of full light, NOT a perceptual value. Current and droop are
+// both linear in light, so the power loop must control light. Driving
 // it in perceptual units puts a cubic in the loop: down at 0.4 perceptual, a
 // step of 0.05 is a two-fold change in light, the gain runs away, and the loop
 // saws back and forth across its own deadband.
@@ -537,16 +531,36 @@ void ArtMatrix::apply_brightness(float light) {
 }
 
 /*
-Any core. Ignore the servo's cap and drive at whatever set_brightness() asks
-for, so a panel that has mis-learned its limits can still be seen and debugged.
+Solve each measured white gain for the light it permits and take the lower. The
+gains come from a real all-white screen, so this is what a fully lit panel may
+have, and every picture is below it by construction. A gain of zero means
+calibration never reached that limit, so it permits everything.
 
-Bypasses the brightness cap and nothing else: the trip still blanks on a rail
-that collapses, and the panel still refuses to drive until VLED_SENSE says a
-supply is there. The worst this can do is make the display flash, not damage it.
+Cheap enough to recompute each tick, which is what lets set_current_limit() take
+effect without measuring the panel again.
+*/
+void ArtMatrix::update_ceiling(float led_budget, float sag_budget) {
+    const float light_i = gain_i > 0.0f ? led_budget / gain_i : 1.0f;
+    const float light_v = gain_v > 0.0f ? sag_budget / gain_v : 1.0f;
 
-The servo keeps running underneath, so its gains stay learned and power_stats()
-stays meaningful, and clearing the flag resumes from a sane brightness rather
-than slamming down to a stale one.
+    last_headroom_i = light_i;
+    last_headroom_v = light_v;
+
+    float light = (light_i < light_v ? light_i : light_v) * CALIBRATE_MARGIN * ceiling_derate;
+    if(light > 1.0f) light = 1.0f;
+    if(light < 0.0f) light = 0.0f;
+
+    brightness_ceiling = light;
+}
+
+/*
+Any core. Ignore the measured ceiling and drive at whatever set_brightness()
+asks for, so a panel that has mis-calibrated can still be seen and debugged.
+
+Bypasses the ceiling and nothing else: the trip still blanks on a rail that
+collapses, and the panel still refuses to drive until VLED_SENSE says a supply
+is there. A trip also clears this, so a panel driven past what its supply can
+hold comes back by itself at the measured ceiling.
 */
 void ArtMatrix::set_force_on(bool force) {
     force_light = force;
@@ -589,23 +603,19 @@ void ArtMatrix::adc_capture_start(void) {
 }
 
 void ArtMatrix::power_up(void) {
-    // back_buffer still holds the last frame at its old scale, and only
-    // update() writes it, so the panel stays dark until the application draws
-    // again. Nothing here keeps a copy of the frame to put back.
-    for(uint32_t i = 0u; i < width * height; i++) back_buffer[i] = 0;
+    // back_buffer still holds the last frame at its old scale, and only update()
+    // and calibration write it, so the panel stays dark until we light it.
+    // Nothing here keeps a copy of the frame to put back.
+    fill_back_buffer(0);
     apply_gamma_scale(0);
-
-    // The panel is showing black, so the last frame's demand describes nothing
-    // that is lit. Zero both and the demand > 0 guard holds the servo's gains
-    // until the application renders again.
-    frame_demand = 0;
-    frame_demand_white = 0;
 
     gpio_drive();
     start(irq_handler);
 
     brightness_allowed = 0.0f;
     brightness_applied = -1.0f;
+    brightness_ceiling = 0.0f;
+    ceiling_derate = 1.0f;
     vled_absent_count = 0;
     vled_open_counts = 0;
     vled_open_avg = 0.0f;
@@ -614,6 +624,13 @@ void ArtMatrix::power_up(void) {
     gain_i = 0.0f;
     gain_v = 0.0f;
     oe_index = 0;
+
+    // Measure this supply before showing anything on it. Holding at black for
+    // the first stretch is what gives the open-circuit rail and the panel's
+    // idle draw, which everything below is measured against.
+    calibrating = true;
+    calibrate_dwell = CALIBRATE_OPEN_DWELL;
+    over_budget_count = 0;
 
     // Let the 15ms soft start finish before believing anything we measure.
     settle_count = POWER_SETTLE_CAPTURES;
@@ -634,6 +651,7 @@ void ArtMatrix::power_down(void) {
     brightness_applied = -1.0f;
     vled_good_count = 0;
     vled_open_counts = 0;
+    calibrating = false;
     blank = true;
     panel_powered = false;
 }
@@ -706,21 +724,40 @@ void ArtMatrix::power_tick(void) {
     // running maximum would never notice the supply getting worse, and would
     // leave the panel chasing a target it can no longer reach.
     if(blank || brightness_applied <= 0.0f) {
-        // Learn the open rail from the same statistic the servo compares
+        // Learn the open rail from the same statistic the budgets compare
         // against: the mean. The minimum of a window wanders with wherever
         // bitplane 9's OEn pulse lands in it - tens of counts of ripple on a
-        // panel drawing no LED current at all - and the content ratio then
-        // multiplies that noise into a droop that was never there.
+        // panel drawing no LED current at all - which would read as a droop
+        // that was never there.
         vled_open_avg = vled_open_avg > 0.0f
             ? vled_open_avg + (vled_avg - vled_open_avg) * 0.125f
             : vled_avg;
         vled_open_counts = (uint32_t)vled_open_avg;
 
-        // The panel's own draw, with the LEDs off. Extrapolating to white has
-        // to scale the LED current only; folding this in would over-predict a
-        // dark screen badly, since it is most of what we measure there.
+        // The panel's own draw, with the LEDs off. Everything below works in
+        // LED current alone, so this has to come off the measurement before
+        // any of it means anything.
         if(cur_idle_avg <= 0.0f) cur_idle_avg = cur_avg;
     }
+
+    // What the panel is drawing over its own idle load, and how far it is
+    // pulling the rail down from open circuit.
+    const float led = cur_avg > cur_idle_avg ? cur_avg - cur_idle_avg : 0.0f;
+
+    float sag = vled_open_avg > vled_avg ? vled_open_avg - vled_avg : 0.0f;
+    sag = sag > (float)VLED_SAG_NOISE_COUNTS ? sag - (float)VLED_SAG_NOISE_COUNTS : 0.0f;
+
+    // Never target a rail below the trip point plus its guard.
+    uint32_t vled_target = VLED_TRIP_COUNTS + VLED_TRIP_MARGIN_COUNTS;
+    if(vled_open_counts > vled_target + VLED_DROOP_COUNTS) {
+        vled_target = vled_open_counts - VLED_DROOP_COUNTS;
+    }
+
+    const float sag_budget = vled_open_avg > (float)vled_target ? vled_open_avg - (float)vled_target : 0.0f;
+    const float budget = (float)cur_budget_counts;
+    const float led_budget = budget > cur_idle_avg ? budget - cur_idle_avg : 0.0f;
+
+    const bool over_budget = led >= led_budget || sag >= sag_budget;
 
     if(vled_sag < VLED_TRIP_COUNTS) {
         if(!blank) {
@@ -731,10 +768,27 @@ void ArtMatrix::power_tick(void) {
             // collapse again - a flashing panel.
             blank = true;
 
-            // Halve rather than zero. Zeroing makes the panel re-ramp from
-            // black, which is the visible pump; the servo below should keep
-            // us from ever getting here.
-            brightness_allowed *= 0.5f;
+            // The override is the likeliest way to reach a collapse, so drop
+            // it: the panel then comes back at its measured ceiling by itself.
+            const bool was_forced = force_light;
+            force_light = false;
+
+            // Calibration is walking a white screen up to find this point, so a
+            // trip is its answer, taken at the light that caused it. Otherwise
+            // the ceiling only moves if the ceiling is what collapsed the rail;
+            // an override reaching it says nothing about white.
+            if(calibrating) {
+                gain_i = brightness_allowed > 0.0f ? led / brightness_allowed : 0.0f;
+                gain_v = brightness_allowed > 0.0f ? sag / brightness_allowed : 0.0f;
+                ceiling_derate = TRIP_DERATE;
+                calibrating = false;
+                fill_back_buffer(0);
+            } else if(!was_forced) {
+                ceiling_derate *= TRIP_DERATE;
+            }
+
+            update_ceiling(led_budget, sag_budget);
+            brightness_allowed = brightness_ceiling;
         } else if(vled_counts < VLED_ABSENT_COUNTS && ++vled_absent_count >= VLED_DEBOUNCE) {
             // Still dead with the LEDs off, so the supply is gone rather than
             // overloaded. Stop driving before we leak into the panel again.
@@ -749,98 +803,74 @@ void ArtMatrix::power_tick(void) {
         // alone, so a minimum-vs-GOOD test can never be satisfied and the
         // panel stays dark on a rail that has already recovered.
         if(vled_counts >= VLED_GOOD_COUNTS) blank = false;
-    } else {
-        // Everything the supply cares about is linear in light: the LED current
-        // and the droop both scale with it, and with how much of the screen is
-        // lit. So rather than nudging brightness around by a normalised error,
-        // measure the two plant gains and solve for the light that reaches each
-        // limit. Slew toward the smaller. One step, no tuning.
-        //
-        // demand and demand_white come from the same render; their ratio is
-        // the reciprocal of the lit fraction, and is free of brightness.
-        const uint32_t demand_white = frame_demand_white;
-        const uint32_t demand = frame_demand;
-        last_demand_white = demand_white;
+    } else if(calibrating) {
+        // Walk an all-white screen up from black until the supply says stop.
+        // Every pixel is lit, so nothing has to be extrapolated from the
+        // picture and there is no small quantity to divide by: what the ADC
+        // reads at the stopping point is what a fully lit panel costs here.
+        if(calibrate_dwell) {
+            calibrate_dwell--;
+        } else if(brightness_allowed > 0.0f && (over_budget || brightness_allowed >= 1.0f)) {
+            gain_i = led / brightness_allowed;
+            gain_v = sag / brightness_allowed;
+            calibrating = false;
 
-        const float light = brightness_applied;
+            // Back to black. Only update() writes back_buffer from here, and
+            // the application has not drawn a frame yet.
+            fill_back_buffer(0);
 
-        // Below a sliver of light, or of screen lit, the LED current is down in
-        // the ADC noise and dividing by it invents headroom. Keep the last
-        // gains instead - they describe the supply, which has not changed.
-        if(light >= LIGHT_MIN_ESTIMATE && demand > 0u
-           && (uint64_t)demand * FRAME_DEMAND_MIN_RECIP >= demand_white) {
-
-            const float ratio = (float)demand_white / (float)demand;
-
-            // What a white screen would draw, and droop, at the light we are
-            // emitting right now - then per unit of light.
-            const float led = cur_avg > cur_idle_avg ? cur_avg - cur_idle_avg : 0.0f;
-
-            float sag = vled_open_avg > vled_avg ? vled_open_avg - vled_avg : 0.0f;
-            sag = sag > (float)VLED_SAG_NOISE_COUNTS ? sag - (float)VLED_SAG_NOISE_COUNTS : 0.0f;
-
-            const float gain_i_raw = led * ratio / light;
-            const float gain_v_raw = sag * ratio / light;
-
-            // The gains track content and supply, both slow. Filtering here
-            // rather than downstream keeps the noise out of the answer without
-            // putting lag between the limit and our response to it.
-            gain_i += (gain_i_raw - gain_i) * POWER_GAIN_FILTER;
-            gain_v += (gain_v_raw - gain_v) * POWER_GAIN_FILTER;
-        }
-
-        // Never target a rail below the trip point plus its guard.
-        uint32_t vled_target = VLED_TRIP_COUNTS + VLED_TRIP_MARGIN_COUNTS;
-        if(vled_open_counts > vled_target + VLED_DROOP_COUNTS) {
-            vled_target = vled_open_counts - VLED_DROOP_COUNTS;
-        }
-
-        const float sag_budget = vled_open_avg > (float)vled_target ? vled_open_avg - (float)vled_target : 0.0f;
-        const float budget = (float)cur_budget_counts;
-        const float led_budget = budget > cur_idle_avg ? budget - cur_idle_avg : 0.0f;
-
-        // Invert each gain for the light it permits. An unmeasured gain permits
-        // everything; the slew limit below keeps that honest.
-        const float light_i = gain_i > 0.0f ? led_budget / gain_i : 1.0f;
-        const float light_v = gain_v > 0.0f ? sag_budget / gain_v : 1.0f;
-
-        last_headroom_v = light_v;
-        last_headroom_i = light_i;
-
-        float light_max = light_i < light_v ? light_i : light_v;
-        if(light_max > 1.0f) light_max = 1.0f;
-
-        // Slew, so a bad estimate or a step change in content can't jump the
-        // panel. Retreat faster than we advance.
-        if(light_max > brightness_allowed) {
-            brightness_allowed += BRIGHTNESS_SLEW_UP;
-            if(brightness_allowed > light_max) brightness_allowed = light_max;
+            update_ceiling(led_budget, sag_budget);
+            brightness_allowed = brightness_ceiling;
         } else {
-            brightness_allowed -= BRIGHTNESS_SLEW_DOWN;
-            if(brightness_allowed < light_max) brightness_allowed = light_max;
+            brightness_allowed += CALIBRATE_STEP;
+            if(brightness_allowed > 1.0f) brightness_allowed = 1.0f;
+            calibrate_dwell = CALIBRATE_DWELL;
+        }
+    } else {
+        // Nothing here reads the frame. The ceiling came off a real white
+        // screen, so it already assumes every pixel could be lit, and only the
+        // budgets or a backstop bite can move it.
+        if(over_budget && ++over_budget_count >= BACKSTOP_DEBOUNCE) {
+            over_budget_count = 0;
+            if(ceiling_derate > BACKSTOP_DERATE_MIN) ceiling_derate -= BACKSTOP_DERATE_STEP;
+        } else if(!over_budget) {
+            over_budget_count = 0;
+        }
+
+        update_ceiling(led_budget, sag_budget);
+
+        // Catch up with the ceiling rather than jumping to it, so a bite reads
+        // as a dip. Retreat much faster than we advance.
+        if(brightness_allowed > brightness_ceiling) {
+            brightness_allowed -= BACKSTOP_STEP_DOWN;
+            if(brightness_allowed < brightness_ceiling) brightness_allowed = brightness_ceiling;
+        } else if(brightness_allowed < brightness_ceiling) {
+            brightness_allowed += BACKSTOP_STEP_UP;
+            if(brightness_allowed > brightness_ceiling) brightness_allowed = brightness_ceiling;
         }
 
         if(brightness_allowed < 0.0f) brightness_allowed = 0.0f;
     }
 
-    // brightness_allowed is light; the target the user set is perceptual.
-    const float target_light = perceptual_to_light(brightness_target);
+    // Calibration drives the panel itself: the ramp is the measurement, and
+    // both the target and the override would corrupt it.
+    float value = brightness_allowed;
 
-    float value = target_light;
-    if(!force_light && brightness_allowed < value) value = brightness_allowed;
+    if(!calibrating) {
+        // brightness_allowed is light; the target the user set is perceptual.
+        value = perceptual_to_light(brightness_target);
+        if(!force_light && brightness_allowed < value) value = brightness_allowed;
+    }
 
     if(value != brightness_applied) {
         apply_brightness(value);
         brightness_applied = value;
 
-        // The OEn multiplier lands on the next row; the gamma scale reaches the
-        // panel through back_buffer, so it applies on the application's next
-        // update(). apply_gamma_scale() carries frame_demand across in the
-        // meantime, so the servo keeps regulating either way.
-        //
-        // Re-rendering here would need a copy of the frame kept aside, since
-        // the drawing surfaces may be part way through a frame. That is a whole
-        // surface of SRAM to spend on the gap between two flips.
+        // The OEn multiplier lands on the next row, but the gamma scale reaches
+        // the panel through back_buffer, so it only shows once something writes
+        // that again. Calibration owns the buffer and must repack its white at
+        // the new scale; otherwise it is the application's next update().
+        if(calibrating) fill_back_buffer(packed_white());
     }
 
     adc_capture_start();

@@ -36,26 +36,54 @@ static constexpr float OE_DUTY[BRIGHTNESS_STEPS] = {
 };
 
 /*
-Light units per power_tick(). The servo solves for the light each limit permits
-and slews toward it, so these bound how fast the panel may change rather than
-setting any loop gain. Retreat faster than we advance.
+Calibration walks a real all-white screen up from black until the supply says
+stop, so the brightness ceiling is measured on whatever is plugged in. Nothing
+is extrapolated from the picture, and nothing about the picture can move it
+afterwards. Light units per power_tick(), so a typical supply stops in around
+twenty steps.
 */
-constexpr float BRIGHTNESS_SLEW_UP = 0.01f;
-constexpr float BRIGHTNESS_SLEW_DOWN = 0.05f;
+constexpr float CALIBRATE_STEP = 0.02f;
 
-// Below this the LED current is in the ADC noise, and the gains it would
-// imply are meaningless. Hold the last ones; they describe the supply.
-constexpr float LIGHT_MIN_ESTIMATE = 0.02f;
+// Captures to hold at each step. The ADC window is 4ms and the panel's bulk
+// capacitance takes a frame or two to settle to a new duty cycle.
+const uint CALIBRATE_DWELL = 3;
+
+// Captures to hold at black before stepping, so the open-circuit rail and the
+// panel's idle draw are learned before anything is measured against them.
+const uint CALIBRATE_OPEN_DWELL = 8;
 
 /*
-The gains are content-independent: LED current and sag both scale with light
-times the lit fraction, and the ratio divides that fraction straight back out.
-What is left describes the supply and the panel, which change only when someone
-swaps a cable - so filter hard. ~64 ticks, 256ms. Nothing is lost on a change of
-picture, and power_up() zeroes them, so a replugged supply is learned fresh
-rather than dragged in through the filter.
+Back off the point calibration stopped at. It runs on a cold panel, and LED
+forward voltage falls as that panel warms, so the same light draws more current
+an hour in. This is the margin that keeps the backstop from having to fire.
 */
-constexpr float POWER_GAIN_FILTER = 0.015625f;
+constexpr float CALIBRATE_MARGIN = 0.9f;
+
+/*
+The ceiling already assumes every pixel is white, so no picture should reach it.
+The backstop is for what calibration could not see: a panel that has warmed up,
+a supply that has aged, a thinner cable swapped in.
+
+It takes the ceiling itself down a notch and leaves it there until the next
+power-up. Tracking the load instead would put brightness back under the control
+of the picture, which is the whole thing calibration exists to avoid: bright
+scenes would dim the panel and dark ones would let it climb again.
+*/
+constexpr float BACKSTOP_DERATE_STEP = 0.02f;   // fraction of the ceiling per bite
+constexpr float BACKSTOP_DERATE_MIN = 0.25f;    // never take more than three quarters
+
+// Consecutive over-budget captures before the backstop bites. Nothing puts the
+// ceiling back, so an isolated ADC outlier must not be able to ratchet it down.
+const uint BACKSTOP_DEBOUNCE = 3;
+
+// Light per power_tick() while brightness catches up with a ceiling that has
+// moved, so a derate reads as a dip and not a step.
+constexpr float BACKSTOP_STEP_DOWN = 0.05f;
+constexpr float BACKSTOP_STEP_UP = 0.0005f;
+
+// Reaching the trip means the ceiling itself was wrong for this supply. Take a
+// real bite out of it, or brightness climbs straight back into the collapse.
+constexpr float TRIP_DERATE = 0.75f;
 
 // OE_DUTY is calculated, not measured, so the gamma scale cannot interpolate a
 // multiplier change away perfectly. Don't step back down until well clear of
@@ -93,21 +121,15 @@ than against 5V, because a thin cable's IR drop shows up as a lower loaded
 rail at a current far below any sensible budget - absolute thresholds would
 either never engage or never let go.
 */
-// Sag is measured mean-to-mean, so this only has to cover ADC noise. Measured
-// LED current at low brightness sits within a couple of counts of the idle
-// draw, and the content ratio multiplies whatever survives.
+// Sag is measured mean-to-mean, so this only has to cover ADC noise.
 const uint32_t VLED_SAG_NOISE_COUNTS = 2;      // ~6mV
 
 const uint32_t VLED_DROOP_COUNTS = 124;        // 400mV
-const uint32_t VLED_TRIP_MARGIN_COUNTS = 124;  // 400mV of guard above the trip
 
-/*
-The servo settles where the present frame just holds the rail up. The next
-frame can be much brighter - Life is all-dark one generation and dense the
-next - so it must settle far enough above the trip point that a step change in
-content sags into the guard band rather than through it. That is what the
-margin buys, and why retreating is much faster than advancing.
-*/
+// Guard band between where calibration stops and where the trip fires.
+// Calibration walks up until the rail reaches its droop target, so without this
+// the last step of that walk would be a brownout.
+const uint32_t VLED_TRIP_MARGIN_COUNTS = 124;  // 400mV
 
 /*
 CUR_SENSE is the TPS22811's IMON output. 0.1906 V/A appears across the whole
@@ -124,7 +146,7 @@ constexpr float CUR_COUNTS_PER_AMP = 118.26f;  // 1A / 8.46mA
 /*
 The load switch current-limits at 3.3A, set by the same 2k that scales IMON.
 That is a ceiling on the switch, not on the supply: a 5A brick does not move it,
-and pushing past it drops VLED, which the servo reads as droop anyway. Leave
+and pushing past it drops VLED, which shows up as droop anyway. Leave
 300mA of margin so a transient does not trip the part.
 
 3.0A is also what the board may draw without negotiating USB-C PD, which is the
@@ -137,13 +159,6 @@ const uint32_t CUR_BUDGET_COUNTS = CUR_LIMIT_COUNTS;
 // Soft start is 15ms; ignore four captures so neither the idle current nor the
 // open-circuit rail is learned from the middle of the ramp.
 const uint POWER_SETTLE_CAPTURES = 5;
-
-/*
-Extrapolating a frame's cost up to a full white screen means dividing by how
-much of the screen is lit. Below 1/20th the LED current is in the ADC noise and
-the quotient is meaningless, so the loop holds its brightness instead.
-*/
-const uint32_t FRAME_DEMAND_MIN_RECIP = 20;
 
 /*
 14-bit gamma table, gamma correcting our 8-bit colour values into four bits
@@ -224,15 +239,18 @@ class ArtMatrix {
     uint16_t sensor_counts = 0;
     uint32_t vled_open_counts = 0;           // core1, rail with the LEDs off
     uint32_t cur_idle_counts = 0;            // core1, panel draw with LEDs off
-    uint32_t frame_demand = 0;               // core1, sum of channel values
-    uint32_t frame_demand_white = 0;         // core1, same frame, all-white
     volatile uint32_t cur_budget_counts = CUR_BUDGET_COUNTS; // written by core0
 
-    // Last values the servo actually acted on, for power_stats().
+    // Core1. While set, back_buffer holds the calibration frame and update()
+    // leaves it alone.
+    bool calibrating = false;
+    uint calibrate_dwell = 0;
+    uint over_budget_count = 0;
+
+    // Last values the loop acted on, for power_stats().
     uint32_t last_vled_mean = 0;
     uint32_t last_vled_min = 0;
     uint32_t last_cur = 0;
-    uint32_t last_demand_white = 0;
     float gain_i = 0.0f;                     // all-white LED counts per light
     float gain_v = 0.0f;                     // all-white sag counts per light
     float cur_idle_avg = 0.0f;
@@ -241,6 +259,8 @@ class ArtMatrix {
     float last_headroom_i = 0.0f;
     volatile float brightness_target = 1.0f; // written by core0
     volatile bool force_light = false;       // written by core0
+    float brightness_ceiling = 0.0f;         // core1, LIGHT an all-white screen may have
+    float ceiling_derate = 1.0f;             // core1, what the trips have taken off it
     float brightness_allowed = 0.0f;         // core1, LIGHT the supply will hold
     float brightness_applied = -1.0f;
 
@@ -251,6 +271,8 @@ class ArtMatrix {
     void release(void);
     void apply_gamma_scale(uint32_t scale);
     void apply_brightness(float light);
+    void update_ceiling(float led_budget, float sag_budget);
+    void fill_back_buffer(uint32_t packed);
 
     // DMA & PIO
     int dma_channel_a1 = -1;
@@ -325,15 +347,16 @@ class ArtMatrix {
     void power_tick(void);
     void power_down(void);
     bool is_powered(void);
+    bool is_calibrating(void);
 
     void set_brightness(float value);
     void set_current_limit(float amps);
     void set_force_on(bool force);
     uint16_t get_sensor(void);
 
-    // Raw servo state, so the operating point can be inspected from Python
+    // Raw power state, so the operating point can be inspected from Python
     // rather than inferred. Counts, not volts/amps: 3.22mV and 4.23mA each.
-    void get_power_stats(uint32_t counts[7], float headroom[4]);
+    void get_power_stats(uint32_t counts[6], float headroom[5]);
 
     };
 }
