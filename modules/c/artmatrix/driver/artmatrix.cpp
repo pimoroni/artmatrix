@@ -686,6 +686,9 @@ void ArtMatrix::power_up(void) {
     // calibration on this supply is still good.
     calibrating = true;
     calibrate_dwell = CALIBRATE_OPEN_DWELL;
+    calibrate_led_sum = 0.0f;
+    calibrate_sag_sum = 0.0f;
+    calibrate_measured = 0;
     over_budget_count = 0;
 
     accum_cur = 0.0f;
@@ -823,6 +826,9 @@ void ArtMatrix::power_tick(void) {
             over_budget_count = 0;
             calibrating = true;
             calibrate_dwell = CALIBRATE_OPEN_DWELL;
+            calibrate_led_sum = 0.0f;
+            calibrate_sag_sum = 0.0f;
+            calibrate_measured = 0;
 
             accum_cur = 0.0f;
             accum_vled = 0.0f;
@@ -1027,11 +1033,22 @@ void ArtMatrix::power_tick(void) {
             gain_v = calibration_gain_v;
             ceiling_derate = calibration_derate;
             finish_calibration(led_budget, sag_budget);
-        } else if(brightness_allowed > 0.0f && (over_budget || brightness_allowed >= 1.0f)) {
-            gain_i = led / brightness_allowed;
-            gain_v = last_sag / brightness_allowed;
-            store_calibration();
-            finish_calibration(led_budget, sag_budget);
+        } else if(brightness_allowed > 0.0f
+                  && (calibrate_measured > 0u || over_budget || brightness_allowed >= 1.0f)) {
+            // Hold here and average, rather than taking the gain from whichever
+            // single tick happened to cross the budget. Once started this runs
+            // to completion, so a marginal reading falling back under on the
+            // next tick cannot restart the walk.
+            calibrate_led_sum += led;
+            calibrate_sag_sum += last_sag;
+
+            if(++calibrate_measured >= CALIBRATE_MEASURE_TICKS) {
+                const float ticks = (float)calibrate_measured;
+                gain_i = (calibrate_led_sum / ticks) / brightness_allowed;
+                gain_v = (calibrate_sag_sum / ticks) / brightness_allowed;
+                store_calibration();
+                finish_calibration(led_budget, sag_budget);
+            }
         } else {
             brightness_allowed += CALIBRATE_STEP;
             if(brightness_allowed > 1.0f) brightness_allowed = 1.0f;

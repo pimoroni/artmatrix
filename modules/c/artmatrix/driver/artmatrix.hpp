@@ -66,6 +66,12 @@ constexpr float CALIBRATE_STEP = 0.04f;
 // is entirely the panel at its new drive rather than its approach to it.
 const uint CALIBRATE_DWELL = 1;
 
+// Averaged ticks to hold at the stopping point and take the gain from. A single
+// tick came in 3.4% either side of sustained draw across two calibrations, and
+// that lands directly on the ceiling: the panel came up 0.427 one boot and 0.412
+// the next. Three ticks cost 96ms against a walk of some 800ms.
+const uint CALIBRATE_MEASURE_TICKS = 3;
+
 // Averaged ticks to hold at black before stepping, so the open-circuit rail and
 // the panel's idle draw are learned before anything is measured against them.
 const uint CALIBRATE_OPEN_DWELL = 2;
@@ -78,10 +84,11 @@ by +0.06%, against a noise floor of +/-0.18% on the mean. The drivers are
 constant current, so forward voltage falling as the panel heats does not change
 what it draws.
 
-What this covers is calibration's own error. Its gain comes from one averaged
-tick at the stop point, and measured against the same panel in sustained use it
-reads about 3% low - the optimistic direction, since a low gain is a high
-ceiling. That bias plus the ~1% run-to-run scatter, with a little over.
+What this covers is calibration's own error. Its gain is measured over a short
+run of ticks at the stopping point, and against the same panel in sustained use
+a single tick came in 3.4% either side across two calibrations. Averaging pulls
+that in; this is what is left, with a little over. It has to cover the
+optimistic direction in particular, since a low gain gives a high ceiling.
 */
 constexpr float CALIBRATE_MARGIN = 0.95f;
 
@@ -283,6 +290,10 @@ class ArtMatrix {
 
     // A run of captures, averaged before the loop regulates on it. See
     // POWER_AVERAGE_CAPTURES.
+    float calibrate_led_sum = 0.0f;
+    float calibrate_sag_sum = 0.0f;
+    uint calibrate_measured = 0;
+
     float accum_cur = 0.0f;
     float accum_vled = 0.0f;
     uint accum_count = 0;
