@@ -103,6 +103,9 @@ direct_framebuffer = set()
 checked_surface_use = set()
 surface_use_attempts = {}
 
+# Plugins already reported for calling display.update(), so it's said once
+warned_held = set()
+
 # Pending config save, flushed by flush_config()
 config_dirty = False
 CONFIG_FLUSH_DELAY = 2
@@ -138,8 +141,12 @@ def bind(name, slot):
         if slot_owner[slot] is not None:
             plugin_state[slot_owner[slot]] = capture_state(surface)
 
-        # the previous occupant's pixels are nothing to do with this plugin, and
-        # not every plugin clears before it draws
+        # The previous occupant's pixels are nothing to do with this plugin, and
+        # not every plugin clears before it draws. Both alpha and clip bound what
+        # clear() actually touches, so reset them first or a leftover value from
+        # the previous occupant leaves its picture showing through.
+        surface.alpha = 255
+        surface.clip = rect(0, 0, surface.width, surface.height)
         surface.pen = color.black
         surface.clear()
 
@@ -171,6 +178,10 @@ def run_plugin(name, module, slot, verify=False):
     if checking:
         before, before_other = sample(surfaces[1]), sample(surfaces[0])
 
+    # A plugin that calls display.update() itself would commit a surface part
+    # way through being drawn, and during a transition would commit the wrong
+    # one. The frame belongs to draw(); hold it while the plugin renders.
+    display.set_hold(True)
     try:
         module.update()
     except MemoryError:
@@ -186,6 +197,12 @@ def run_plugin(name, module, slot, verify=False):
             sys.print_exception(e)
 
         return count < PLUGIN_MAX_FAILURES
+    finally:
+        # also on the raising path, or nothing would ever flip again
+        held = display.set_hold(False)
+        if held and name not in warned_held:
+            warned_held.add(name)
+            print(f"plugin {name} calls display.update(); the frame is the host's, so it was ignored")
 
     plugin_failures.pop(name, None)
 
@@ -546,6 +563,13 @@ current_slot = 0
 prev_plugin = 0
 prev_slot = 1
 
+# A fade renders both plugins per frame. Where that pair is too expensive the
+# outgoing one holds its last frame instead: it is the one being left, and a
+# steady frame rate reads better than its final half second of animation.
+FRAME_BUDGET_MS = 25
+frame_ms = 0
+fade_animate_prev = True
+
 
 def reset_transition():
     global fading, current_slot, prev_slot, last_changed
@@ -568,6 +592,7 @@ async def flip(blend):
 
 def start_transition():
     global current_plugin, current_slot, prev_plugin, prev_slot, fade_start, fading, last_changed
+    global fade_animate_prev
 
     prev_plugin = current_plugin
     prev_slot = current_slot
@@ -586,6 +611,16 @@ def start_transition():
     # so those transitions cut instead of blending.
     fading = current_slot != prev_slot and not (outgoing_direct and prev_slot != 0)
 
+    # Decided once, from the frame rate going in, so it can't oscillate between
+    # animating and holding across the fade.
+    fade_animate_prev = frame_ms <= FRAME_BUDGET_MS
+
+    if fading:
+        # Draw the incoming plugin before any of it is shown. bind() clears its
+        # surface, and a frame limiter can skip the first update, so otherwise
+        # the fade opens by blending toward black.
+        run_plugin(modules[current_plugin][0], modules[current_plugin][1], current_slot)
+
     fade_start = time.ticks_ms()
     last_changed = time.time()
 
@@ -593,11 +628,12 @@ def start_transition():
 
 
 async def draw():
-    global fading, current_slot
+    global fading, current_slot, frame_ms
 
     reset_transition()
 
     while True:
+        frame_start = time.ticks_ms()
 
         if modules:
             name, module = modules[current_plugin]
@@ -606,9 +642,11 @@ async def draw():
                 progress = min(1.0, time.ticks_diff(time.ticks_ms(), fade_start) / FADE_DURATION)
                 mix = int(255 * easeOutCubic(progress))
 
-                # Both plugins keep animating; core1 does the compositing.
-                prev_name, prev_module = modules[prev_plugin]
-                run_plugin(prev_name, prev_module, prev_slot)
+                # Both plugins animate through the fade; core1 composites. The
+                # outgoing one holds its last frame if the pair costs too much.
+                if fade_animate_prev:
+                    prev_name, prev_module = modules[prev_plugin]
+                    run_plugin(prev_name, prev_module, prev_slot)
                 run_plugin(name, module, current_slot)
 
                 if progress >= 1.0:
@@ -634,6 +672,8 @@ async def draw():
             slot_owner[0] = None
             show_no_plugins()
             await flip(0)
+
+        frame_ms = time.ticks_diff(time.ticks_ms(), frame_start)
 
         await asyncio.sleep_ms(10)
 
