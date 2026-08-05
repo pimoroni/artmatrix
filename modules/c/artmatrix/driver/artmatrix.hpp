@@ -36,21 +36,39 @@ static constexpr float OE_DUTY[BRIGHTNESS_STEPS] = {
 };
 
 /*
+Captures the power loop averages before regulating on the result. One capture
+spans 4ms against a frame of 3.15ms at the shortest OEn multiplier, and the scan
+is bitplane-major, so bitplane 9 - half the frame's lit time - falls inside the
+window once or twice depending on phase. Measured, that is 6% of scatter on the
+mean current, which the idle-draw subtraction turns into tens of percent on the
+LED current at low light.
+
+Eight captures span about ten frames, taking the worst-case phase error to under
+1%, and give the loop a 32ms period, which is still far faster than anything it
+regulates. The trip is unaffected - it runs on every capture.
+*/
+const uint POWER_AVERAGE_CAPTURES = 8;
+
+/*
 Calibration walks a real all-white screen up from black until the supply says
 stop, so the brightness ceiling is measured on whatever is plugged in. Nothing
 is extrapolated from the picture, and nothing about the picture can move it
-afterwards. Light units per power_tick(), so a typical supply stops in around
-twenty steps.
+afterwards.
+
+Light units per averaged tick, so a typical supply stops in eight or so steps.
+The step only sets how far past the budget the walk may overshoot before it
+stops: the gain is measured wherever it lands, and the ceiling comes from the
+gain rather than from the stopping light.
 */
-constexpr float CALIBRATE_STEP = 0.02f;
+constexpr float CALIBRATE_STEP = 0.04f;
 
-// Captures to hold at each step. The ADC window is 4ms and the panel's bulk
-// capacitance takes a frame or two to settle to a new duty cycle.
-const uint CALIBRATE_DWELL = 3;
+// Averaged ticks to discard after each step, so that what the next one measures
+// is entirely the panel at its new drive rather than its approach to it.
+const uint CALIBRATE_DWELL = 1;
 
-// Captures to hold at black before stepping, so the open-circuit rail and the
-// panel's idle draw are learned before anything is measured against them.
-const uint CALIBRATE_OPEN_DWELL = 8;
+// Averaged ticks to hold at black before stepping, so the open-circuit rail and
+// the panel's idle draw are learned before anything is measured against them.
+const uint CALIBRATE_OPEN_DWELL = 2;
 
 /*
 Back off the point calibration stopped at. It runs on a cold panel, and LED
@@ -247,6 +265,21 @@ class ArtMatrix {
     uint calibrate_dwell = 0;
     uint over_budget_count = 0;
 
+    // A run of captures, averaged before the loop regulates on it. See
+    // POWER_AVERAGE_CAPTURES.
+    float accum_cur = 0.0f;
+    float accum_vled = 0.0f;
+    uint accum_count = 0;
+    uint32_t accum_vled_min = 4095;
+    uint32_t accum_cur_peak = 0;
+
+    // The last averaged tick's working values. The trip runs between ticks and
+    // has nothing fresher to reach for.
+    float last_led = 0.0f;
+    float last_sag = 0.0f;
+    float last_led_budget = 0.0f;
+    float last_sag_budget = 0.0f;
+
     // Last values the loop acted on, for power_stats().
     uint32_t last_vled_mean = 0;
     uint32_t last_vled_min = 0;
@@ -274,6 +307,7 @@ class ArtMatrix {
     void apply_gamma_scale(uint32_t scale);
     void apply_brightness(float light);
     void update_ceiling(float led_budget, float sag_budget);
+    void apply_target(void);
     void store_calibration(void);
     void finish_calibration(float led_budget, float sag_budget);
     void fill_back_buffer(uint32_t packed);

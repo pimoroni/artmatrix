@@ -684,6 +684,16 @@ void ArtMatrix::power_up(void) {
     calibrate_dwell = CALIBRATE_OPEN_DWELL;
     over_budget_count = 0;
 
+    accum_cur = 0.0f;
+    accum_vled = 0.0f;
+    accum_count = 0;
+    accum_vled_min = 4095;
+    accum_cur_peak = 0;
+    last_led = 0.0f;
+    last_sag = 0.0f;
+    last_led_budget = 0.0f;
+    last_sag_budget = 0.0f;
+
     // Let the 15ms soft start finish before believing anything we measure.
     settle_count = POWER_SETTLE_CAPTURES;
 
@@ -712,6 +722,32 @@ void ArtMatrix::power_down(void) {
     calibration_valid = false;
 }
 
+// Light the panel at whatever the current state permits. Split out because
+// power_tick() returns from several places and every one of them must leave the
+// panel driven, not just the path that reaches the bottom.
+void ArtMatrix::apply_target(void) {
+    // Calibration drives the panel itself: the ramp is the measurement, and
+    // both the target and the override would corrupt it.
+    float value = brightness_allowed;
+
+    if(!calibrating) {
+        // brightness_allowed is light; the target the user set is perceptual.
+        value = perceptual_to_light(brightness_target);
+        if(!force_light && brightness_allowed < value) value = brightness_allowed;
+    }
+
+    if(value != brightness_applied) {
+        apply_brightness(value);
+        brightness_applied = value;
+
+        // The OEn multiplier lands on the next row, but the gamma scale reaches
+        // the panel through back_buffer, so it only shows once something writes
+        // that again. Calibration owns the buffer and must repack its white at
+        // the new scale; otherwise it is the application's next update().
+        if(calibrating) fill_back_buffer(packed_white());
+    }
+}
+
 // Core1. Cheap to call often; the work only happens once a capture lands.
 void ArtMatrix::power_tick(void) {
     if(dma_channel_is_busy(dma_channel_adc)) return;
@@ -733,28 +769,28 @@ void ArtMatrix::power_tick(void) {
 
         // The budget is enforced on the mean, but the load switch limits on the
         // instantaneous current, and BCM puts most of the frame in the MSB
-        // plane. Reported only: this is the peak-to-mean ratio that says how
-        // much of the guard below CUR_LIMIT_COUNTS is doing real work.
+        // plane. Reported only, as the peak-to-mean ratio.
         if((i % 3) == 0u && sample > cur_peak) cur_peak = sample;
     }
 
-    const uint32_t cur_counts = sum[0] / ADC_PER_INPUT;
     const uint32_t vled_counts = sum[2] / ADC_PER_INPUT;
 
     // Keep the sub-count resolution the averaging bought us. Rounding 128
-    // summed samples down to an integer throws away seven bits, and cur_led is
-    // only single-digit counts on sparse content - the extrapolation then
-    // multiplies each lost count by the content ratio, tenfold or more.
-    const float cur_avg = (float)sum[0] / (float)ADC_PER_INPUT;
-    const float vled_avg = (float)sum[2] / (float)ADC_PER_INPUT;
+    // summed samples down to an integer throws away seven bits, and the LED
+    // current is a small difference against a much larger idle draw.
+    const float cur_capture = (float)sum[0] / (float)ADC_PER_INPUT;
+    const float vled_capture = (float)sum[2] / (float)ADC_PER_INPUT;
 
     sensor_counts = (sum[1] / ADC_PER_INPUT) << 4; // 12-bit -> u16, as machine.ADC
-    last_vled_mean = vled_counts;
-    last_vled_min = vled_sag;
-    last_cur = cur_counts;
-    last_cur_peak = cur_peak;
 
     if(!panel_powered) {
+        // No averaged tick will run to fill these, and power_stats() is how you
+        // watch a supply that is not coming up.
+        last_cur = sum[0] / ADC_PER_INPUT;
+        last_vled_mean = vled_counts;
+        last_vled_min = vled_sag;
+        last_cur_peak = cur_peak;
+
         // Debounce a supply that's still coming up.
         if(vled_counts >= VLED_GOOD_COUNTS) {
             if(++vled_good_count >= VLED_DEBOUNCE) power_up();
@@ -786,59 +822,26 @@ void ArtMatrix::power_tick(void) {
             over_budget_count = 0;
             calibrating = true;
             calibrate_dwell = CALIBRATE_OPEN_DWELL;
+
+            accum_cur = 0.0f;
+            accum_vled = 0.0f;
+            accum_count = 0;
+            accum_vled_min = 4095;
+            accum_cur_peak = 0;
         }
     }
 
     if(vled_counts >= VLED_ABSENT_COUNTS) vled_absent_count = 0;
 
-    // LEDs only ever add to the panel's draw, so the smallest total we have
-    // ever seen is the idle draw. Sampling it once at power_up() catches the
-    // inrush instead, latching it above the real current - cur_led then clamps
-    // to zero, the budget reads headroom that isn't there, and nothing stops
-    // the ramp until the rail folds.
-    if(cur_idle_avg <= 0.0f || cur_avg < cur_idle_avg) cur_idle_avg = cur_avg;
-    cur_idle_counts = (uint32_t)cur_idle_avg;
+    /*
+    The trip runs on every capture, on the worst sample in it. A rail folding
+    cannot wait for an average, and this is the only thing here fast enough to
+    catch it.
 
-    // Learn what this supply gives us with the LEDs off. Everything below is
-    // measured against that, not against a nominal 5V. Track it both ways: a
-    // running maximum would never notice the supply getting worse, and would
-    // leave the panel chasing a target it can no longer reach.
-    if(blank || brightness_applied <= 0.0f) {
-        // Learn the open rail from the same statistic the budgets compare
-        // against: the mean. The minimum of a window wanders with wherever
-        // bitplane 9's OEn pulse lands in it - tens of counts of ripple on a
-        // panel drawing no LED current at all - which would read as a droop
-        // that was never there.
-        vled_open_avg = vled_open_avg > 0.0f
-            ? vled_open_avg + (vled_avg - vled_open_avg) * 0.125f
-            : vled_avg;
-        vled_open_counts = (uint32_t)vled_open_avg;
-
-        // The panel's own draw, with the LEDs off. Everything below works in
-        // LED current alone, so this has to come off the measurement before
-        // any of it means anything.
-        if(cur_idle_avg <= 0.0f) cur_idle_avg = cur_avg;
-    }
-
-    // What the panel is drawing over its own idle load, and how far it is
-    // pulling the rail down from open circuit.
-    const float led = cur_avg > cur_idle_avg ? cur_avg - cur_idle_avg : 0.0f;
-
-    float sag = vled_open_avg > vled_avg ? vled_open_avg - vled_avg : 0.0f;
-    sag = sag > (float)VLED_SAG_NOISE_COUNTS ? sag - (float)VLED_SAG_NOISE_COUNTS : 0.0f;
-
-    // Never target a rail below the trip point plus its guard.
-    uint32_t vled_target = VLED_TRIP_COUNTS + VLED_TRIP_MARGIN_COUNTS;
-    if(vled_open_counts > vled_target + VLED_DROOP_COUNTS) {
-        vled_target = vled_open_counts - VLED_DROOP_COUNTS;
-    }
-
-    const float sag_budget = vled_open_avg > (float)vled_target ? vled_open_avg - (float)vled_target : 0.0f;
-    const float budget = (float)cur_budget_counts;
-    const float led_budget = budget > cur_idle_avg ? budget - cur_idle_avg : 0.0f;
-
-    const bool over_budget = led >= led_budget || sag >= sag_budget;
-
+    It acts on budgets from the last averaged tick, up to POWER_AVERAGE_CAPTURES
+    old. That is the right trade: they describe what the panel was already
+    doing, and nothing about them changes the decision to blank.
+    */
     if(vled_sag < VLED_TRIP_COUNTS) {
         if(!blank) {
             // Blank before judging the supply. With the LEDs off an overload
@@ -858,15 +861,15 @@ void ArtMatrix::power_tick(void) {
             // the ceiling only moves if the ceiling is what collapsed the rail;
             // an override reaching it says nothing about white.
             if(calibrating) {
-                gain_i = brightness_allowed > 0.0f ? led / brightness_allowed : 0.0f;
-                gain_v = brightness_allowed > 0.0f ? sag / brightness_allowed : 0.0f;
+                gain_i = brightness_allowed > 0.0f ? last_led / brightness_allowed : 0.0f;
+                gain_v = brightness_allowed > 0.0f ? last_sag / brightness_allowed : 0.0f;
                 ceiling_derate = TRIP_DERATE;
                 store_calibration();
-                finish_calibration(led_budget, sag_budget);
+                finish_calibration(last_led_budget, last_sag_budget);
             } else {
                 if(!was_forced) ceiling_derate *= TRIP_DERATE;
                 store_calibration();
-                update_ceiling(led_budget, sag_budget);
+                update_ceiling(last_led_budget, last_sag_budget);
                 brightness_allowed = brightness_ceiling;
             }
         } else if(vled_counts < VLED_ABSENT_COUNTS && ++vled_absent_count >= VLED_DEBOUNCE) {
@@ -874,7 +877,13 @@ void ArtMatrix::power_tick(void) {
             // overloaded. Stop driving before we leak into the panel again.
             power_down();
         }
-    } else if(blank) {
+
+        apply_target();
+        adc_capture_start();
+        return;
+    }
+
+    if(blank) {
         // Only resume once the rail is comfortably back, not the instant it
         // crosses the trip point. Blanking also covers the first tick after
         // power_up(), so nothing lights until a real frame has been clocked
@@ -883,12 +892,105 @@ void ArtMatrix::power_tick(void) {
         // alone, so a minimum-vs-GOOD test can never be satisfied and the
         // panel stays dark on a rail that has already recovered.
         if(vled_counts >= VLED_GOOD_COUNTS) blank = false;
+    }
+
+    /*
+    Everything past here regulates, and regulates on an average of whole
+    captures.
+
+    One capture is a 4ms window against a 3.15ms frame at the shortest OEn
+    multiplier, and dma_complete() scans every row of a bitplane before moving
+    to the next - so bitplane 9, half the frame's lit time, is one contiguous
+    block that lands inside the window either once or twice depending on phase.
+    Measured, that is 6% of scatter on the mean current, and the LED current is
+    a small difference against a much larger idle draw, so at low light it comes
+    out as tens of percent. Averaging whole captures walks the window across the
+    frame and takes it back out.
+    */
+    accum_cur += cur_capture;
+    accum_vled += vled_capture;
+    if(vled_sag < accum_vled_min) accum_vled_min = vled_sag;
+    if(cur_peak > accum_cur_peak) accum_cur_peak = cur_peak;
+
+    if(++accum_count < POWER_AVERAGE_CAPTURES) {
+        apply_target();
+        adc_capture_start();
+        return;
+    }
+
+    const float cur_avg = accum_cur / (float)accum_count;
+    const float vled_avg = accum_vled / (float)accum_count;
+
+    // Report what the loop acted on, not one arbitrary window of it.
+    last_cur = (uint32_t)cur_avg;
+    last_vled_mean = (uint32_t)vled_avg;
+    last_cur_peak = accum_cur_peak;
+    last_vled_min = accum_vled_min;
+
+    accum_cur = 0.0f;
+    accum_vled = 0.0f;
+    accum_count = 0;
+    accum_vled_min = 4095;
+    accum_cur_peak = 0;
+
+    // LEDs only ever add to the panel's draw, so the smallest total we have
+    // ever seen is the idle draw. Sampling it once at power_up() catches the
+    // inrush instead, latching it above the real current - the LED current then
+    // clamps to zero, the budget reads headroom that isn't there, and nothing
+    // stops the ramp until the rail folds.
+    if(cur_idle_avg <= 0.0f || cur_avg < cur_idle_avg) cur_idle_avg = cur_avg;
+    cur_idle_counts = (uint32_t)cur_idle_avg;
+
+    // Learn what this supply gives us with the LEDs off. Everything below is
+    // measured against that, not against a nominal 5V. Track it both ways: a
+    // running maximum would never notice the supply getting worse, and would
+    // leave the panel chasing a target it can no longer reach.
+    if(blank || brightness_applied <= 0.0f) {
+        // Learn the open rail from the same statistic the budgets compare
+        // against: the mean. The minimum of a window wanders with wherever
+        // bitplane 9's OEn pulse lands in it - tens of counts of ripple on a
+        // panel drawing no LED current at all - which would read as a droop
+        // that was never there.
+        vled_open_avg = vled_open_avg > 0.0f
+            ? vled_open_avg + (vled_avg - vled_open_avg) * 0.125f
+            : vled_avg;
+        vled_open_counts = (uint32_t)vled_open_avg;
+    }
+
+    // What the panel is drawing over its own idle load, and how far it is
+    // pulling the rail down from open circuit. Kept, because the trip runs
+    // between averaged ticks and has nothing fresher to work from.
+    last_led = cur_avg > cur_idle_avg ? cur_avg - cur_idle_avg : 0.0f;
+
+    const float sag_raw = vled_open_avg > vled_avg ? vled_open_avg - vled_avg : 0.0f;
+    last_sag = sag_raw > (float)VLED_SAG_NOISE_COUNTS ? sag_raw - (float)VLED_SAG_NOISE_COUNTS : 0.0f;
+
+    // Never target a rail below the trip point plus its guard.
+    uint32_t vled_target = VLED_TRIP_COUNTS + VLED_TRIP_MARGIN_COUNTS;
+    if(vled_open_counts > vled_target + VLED_DROOP_COUNTS) {
+        vled_target = vled_open_counts - VLED_DROOP_COUNTS;
+    }
+
+    last_sag_budget = vled_open_avg > (float)vled_target ? vled_open_avg - (float)vled_target : 0.0f;
+    const float budget = (float)cur_budget_counts;
+    last_led_budget = budget > cur_idle_avg ? budget - cur_idle_avg : 0.0f;
+
+    const float led = last_led;
+    const float led_budget = last_led_budget;
+    const float sag_budget = last_sag_budget;
+    const bool over_budget = led >= led_budget || last_sag >= sag_budget;
+
+    if(blank) {
+        // Nothing to regulate with the output off: the budgets describe LED
+        // current that is not being drawn.
     } else if(calibrating) {
         // Walk an all-white screen up from black until the supply says stop.
         // Every pixel is lit, so nothing has to be extrapolated from the
         // picture and there is no small quantity to divide by: what the ADC
         // reads at the stopping point is what a fully lit panel costs here.
         if(calibrate_dwell) {
+            // One averaged tick discarded after each step, so that what the
+            // next one measures is entirely the panel at its new drive.
             calibrate_dwell--;
         } else if(calibration_valid) {
             // Already measured on this supply, and the dwell above has just
@@ -900,7 +1002,7 @@ void ArtMatrix::power_tick(void) {
             finish_calibration(led_budget, sag_budget);
         } else if(brightness_allowed > 0.0f && (over_budget || brightness_allowed >= 1.0f)) {
             gain_i = led / brightness_allowed;
-            gain_v = sag / brightness_allowed;
+            gain_v = last_sag / brightness_allowed;
             store_calibration();
             finish_calibration(led_budget, sag_budget);
         } else {
@@ -934,27 +1036,7 @@ void ArtMatrix::power_tick(void) {
         if(brightness_allowed < 0.0f) brightness_allowed = 0.0f;
     }
 
-    // Calibration drives the panel itself: the ramp is the measurement, and
-    // both the target and the override would corrupt it.
-    float value = brightness_allowed;
-
-    if(!calibrating) {
-        // brightness_allowed is light; the target the user set is perceptual.
-        value = perceptual_to_light(brightness_target);
-        if(!force_light && brightness_allowed < value) value = brightness_allowed;
-    }
-
-    if(value != brightness_applied) {
-        apply_brightness(value);
-        brightness_applied = value;
-
-        // The OEn multiplier lands on the next row, but the gamma scale reaches
-        // the panel through back_buffer, so it only shows once something writes
-        // that again. Calibration owns the buffer and must repack its white at
-        // the new scale; otherwise it is the application's next update().
-        if(calibrating) fill_back_buffer(packed_white());
-    }
-
+    apply_target();
     adc_capture_start();
 }
 
