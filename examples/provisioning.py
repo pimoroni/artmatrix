@@ -8,6 +8,10 @@ import network
 
 wlan = None
 
+# Console only. The wifi_test_done poll runs at 1Hz, and each flash append takes
+# the multicore lockout.
+logging.log_file = None
+
 screen.font = rom_font.nope
 
 code = qrcode.QRCode()

@@ -9,7 +9,12 @@ import mip
 import ntptime
 import requests
 from easing import easeOutCubic
-from phew import redirect, render_template, serve_file, server
+from phew import logging, redirect, render_template, serve_file, server
+
+# Keep the request log on the console only. Writing it takes the multicore
+# lockout, so a per-request flash append stalls both cores and wears flash for
+# every asset fetch.
+logging.log_file = None
 
 screen.antialias = image.X4
 
