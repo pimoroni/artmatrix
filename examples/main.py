@@ -1,4 +1,5 @@
 import asyncio
+import builtins
 import gc
 import json
 import os
@@ -17,6 +18,36 @@ from phew import logging, redirect, render_template, serve_file, server
 logging.log_file = None
 
 screen.antialias = image.X4
+
+# pen and font read back as None until they're set, and neither setter takes
+# None, so give them values before DEFAULT_STATE is captured from them.
+screen.pen = color.white
+screen.font = rom_font.nope
+
+# Two drawing surfaces, so a transition gives the outgoing and incoming plugins
+# one each and core1 blends them during the copy it already does. Surface 0 is
+# the buffer memoryview(display) exposes, which is what `screen` wraps.
+surfaces = (screen, image(screen.width, screen.height, display.surface(1)))
+
+# An image carries its own pen, font, antialias and so on, but a surface is
+# recycled once its plugin leaves the rotation. Carry the state with the plugin.
+SURFACE_STATE = ("pen", "font", "antialias", "fill_rule", "alpha", "clip")
+
+# What every plugin starts from, so what it inherits at import doesn't depend on
+# which plugin happened to be imported before it.
+DEFAULT_STATE = {key: getattr(screen, key) for key in SURFACE_STATE}
+
+
+def capture_state(surface):
+    return {key: getattr(surface, key) for key in SURFACE_STATE}
+
+
+def apply_state(surface, state):
+    for key, value in state.items():
+        # defensive: pen and font refuse None, which is what they read back as
+        # if a plugin somehow arrived without either set
+        if value is not None:
+            setattr(surface, key, value)
 
 ###
 # Provisioning
@@ -56,14 +87,124 @@ last_changed = None
 current_plugin = 0
 enabled_plugins = []
 disabled_plugins = []
-NUM_PLUGINS = 0
 modules = []
+
+# Per-plugin image state, and which plugin currently occupies each surface
+plugin_state = {}
+slot_owner = [None, None]
+
+# Consecutive update() failures per plugin, and how many before it's skipped
+plugin_failures = {}
+PLUGIN_MAX_FAILURES = 5
+
+# Plugins that draw somewhere other than the surface they were handed. They
+# can't be blended, so they get a hard cut instead. Detected in run_plugin().
+direct_framebuffer = set()
+checked_surface_use = set()
+surface_use_attempts = {}
 
 # Pending config save, flushed by flush_config()
 config_dirty = False
 CONFIG_FLUSH_DELAY = 2
 
+# Frames to watch a plugin for before giving up on classifying it. A frame
+# limiter can skip several in a row, and a skipped frame proves nothing.
+SURFACE_CHECK_FRAMES = 120
+
 cx, cy = screen.width / 2, screen.height / 2
+
+
+def import_plugin(name):
+    """Import a plugin with a known starting surface state, and record what it set."""
+    surface = surfaces[0]
+    apply_state(surface, DEFAULT_STATE)
+    builtins.screen = surface
+
+    module = __import__(f"/lib/plugins/{name}")
+
+    plugin_state[name] = capture_state(surface)
+
+    # the import left arbitrary state on surface 0; force the next bind to restore
+    slot_owner[0] = None
+
+    return module
+
+
+def bind(name, slot):
+    """Make `name` the occupant of surface `slot` and bind it as the global screen."""
+    surface = surfaces[slot]
+
+    if slot_owner[slot] != name:
+        if slot_owner[slot] is not None:
+            plugin_state[slot_owner[slot]] = capture_state(surface)
+
+        # the previous occupant's pixels are nothing to do with this plugin, and
+        # not every plugin clears before it draws
+        surface.pen = color.black
+        surface.clear()
+
+        apply_state(surface, plugin_state.get(name, DEFAULT_STATE))
+
+        slot_owner[slot] = name
+
+    builtins.screen = surface
+
+
+def sample(surface):
+    """Cheap checksum of a surface, to tell whether a plugin drew into it."""
+    buf = memoryview(surface)
+    total = 0
+    for offset in range(0, len(buf), 253):
+        total += buf[offset]
+    return total
+
+
+def run_plugin(name, module, slot, verify=False):
+    """Draw a plugin into surface `slot`. Returns False once it's failed too often."""
+    bind(name, slot)
+
+    # A plugin that captured a buffer at import keeps drawing into that one
+    # whatever surface it is handed, and a frame that lands on surface 0 can't be
+    # blended. Watch both surfaces the first time it runs on surface 1, and only
+    # outside a transition, where nothing else is drawing.
+    checking = verify and slot == 1 and name not in checked_surface_use
+    if checking:
+        before, before_other = sample(surfaces[1]), sample(surfaces[0])
+
+    try:
+        module.update()
+    except MemoryError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        count = plugin_failures.get(name, 0) + 1
+        plugin_failures[name] = count
+
+        # A plugin that never recovers is called every frame, so stop reporting
+        # it once it has been skipped. The counter only resets on a good frame.
+        if count <= PLUGIN_MAX_FAILURES:
+            print(f"plugin {name} update failed ({count}/{PLUGIN_MAX_FAILURES}):")
+            sys.print_exception(e)
+
+        return count < PLUGIN_MAX_FAILURES
+
+    plugin_failures.pop(name, None)
+
+    if checking:
+        attempts = surface_use_attempts.get(name, 0) + 1
+        surface_use_attempts[name] = attempts
+
+        if sample(surfaces[1]) != before:
+            # drew where it was told
+            checked_surface_use.add(name)
+        elif sample(surfaces[0]) != before_other:
+            print(f"plugin {name} draws outside its surface, its transitions will cut")
+            direct_framebuffer.add(name)
+            checked_surface_use.add(name)
+        elif attempts >= SURFACE_CHECK_FRAMES:
+            # drew nothing either way often enough that there's nothing to learn
+            checked_surface_use.add(name)
+
+    return True
 
 
 def write_config():
@@ -102,7 +243,7 @@ def save_config():
 
 
 def load_plugins():
-    global enabled_plugins, disabled_plugins, NUM_PLUGINS, modules, current_plugin, delay
+    global enabled_plugins, disabled_plugins, modules, current_plugin, delay
 
     enabled_plugins = config.enabled_plugins
     disabled_plugins = config.disabled_plugins
@@ -128,11 +269,14 @@ def load_plugins():
         write_config()
 
     # import enabled plugins
-    NUM_PLUGINS = len(enabled_plugins)
-    modules = [(plugin, __import__(f"/lib/plugins/{plugin}")) for plugin in enabled_plugins]
+    modules = [(plugin, import_plugin(plugin)) for plugin in enabled_plugins]
 
     # reset the current to zero, start from the beginning.
     current_plugin = 0
+
+    # This runs from web handlers, so a transition may be part way through and
+    # holding indices into the list we just rebuilt.
+    reset_transition()
 
 
 def resync_modules():
@@ -145,7 +289,8 @@ def resync_modules():
     showing = modules[current_plugin][0]
     modules.sort(key=lambda entry: enabled_plugins.index(entry[0]))
 
-    # prev_plugin indexes the list as it was, so drop any transition in flight
+    # prev_plugin indexes the list as it was, so drop any transition in flight.
+    # Surface ownership stands: it's the same set of plugins on the same surfaces.
     fading = False
     current_plugin = [entry[0] for entry in modules].index(showing)
 
@@ -315,8 +460,13 @@ def configure_plugin(request):
 
         del sys.modules[f"/lib/plugins/{plugin}"]
         gc.collect()
-        index = [modules.index(m) for m in modules if m[0] == plugin][0]
-        modules[index] = (f"{plugin}", __import__(f"/lib/plugins/{plugin}"))
+
+        # only enabled plugins are in modules, a disabled one reloads when enabled
+        for index, (name, _module) in enumerate(modules):
+            if name == plugin:
+                modules[index] = (plugin, import_plugin(plugin))
+                reset_transition()
+                break
 
         return redirect(f"/config?plugin={plugin}", status=303)
 
@@ -392,60 +542,98 @@ def show_no_plugins():
 FADE_DURATION = 500
 fade_start = 0
 fading = False
-prev_plugin = None
-next_plugin = None
+current_slot = 0
+prev_plugin = 0
+prev_slot = 1
+
+
+def reset_transition():
+    global fading, current_slot, prev_slot, last_changed
+    fading = False
+    current_slot = 0
+    prev_slot = 1
+    slot_owner[0] = slot_owner[1] = None
+    last_changed = time.time()
+
+
+async def flip(blend):
+    """Commit a frame, then wait for core1 before anything draws again."""
+    display.update(blend)
+
+    # Waiting here rather than after the next draw is what keeps the clear from
+    # chasing the flip, and the awaits let the web server run meanwhile.
+    while display.is_busy():
+        await asyncio.sleep_ms(0)
+
+
+def start_transition():
+    global current_plugin, current_slot, prev_plugin, prev_slot, fade_start, fading, last_changed
+
+    prev_plugin = current_plugin
+    prev_slot = current_slot
+
+    current_plugin = (current_plugin + 1) % len(modules)
+
+    outgoing_direct = modules[prev_plugin][0] in direct_framebuffer
+
+    if modules[current_plugin][0] in direct_framebuffer:
+        # it writes surface 0 whatever surface it is handed, so that is its slot
+        current_slot = 0
+    else:
+        current_slot = 1 - prev_slot
+
+    # Two plugins can't share surface 0, and a direct one can't be moved off it,
+    # so those transitions cut instead of blending.
+    fading = current_slot != prev_slot and not (outgoing_direct and prev_slot != 0)
+
+    fade_start = time.ticks_ms()
+    last_changed = time.time()
+
+    gc.collect()
 
 
 async def draw():
-    global last_changed, current_plugin, prev_plugin, next_plugin, fade_start, fading
+    global fading, current_slot
 
-    last_changed = time.time()
-    screen.pen = color.rgb(0, 0, 0)
-    screen.clear()
+    reset_transition()
 
     while True:
 
         if modules:
+            name, module = modules[current_plugin]
+
             if fading:
-                fade_progress = min(1.0, time.ticks_diff(time.ticks_ms(), fade_start) / FADE_DURATION)
-                t = int(255 * easeOutCubic(fade_progress))
+                progress = min(1.0, time.ticks_diff(time.ticks_ms(), fade_start) / FADE_DURATION)
+                mix = int(255 * easeOutCubic(progress))
 
-                screen.alpha = 255
-                screen.blit(prev_plugin, vec2(0, 0))
-                screen.alpha = t
-                screen.blit(next_plugin, vec2(0, 0))
+                # Both plugins keep animating; core1 does the compositing.
+                prev_name, prev_module = modules[prev_plugin]
+                run_plugin(prev_name, prev_module, prev_slot)
+                run_plugin(name, module, current_slot)
 
-                if t >= 255:
+                if progress >= 1.0:
                     fading = False
-                    screen.alpha = 255
-                    del prev_plugin, next_plugin
-                    gc.collect()
 
-                display.update()
+                await flip(mix if current_slot else 255 - mix)
             else:
-                modules[current_plugin][1].update()
-                display.update()
+                healthy = run_plugin(name, module, current_slot, verify=True)
 
-                if (time.time() - last_changed) > delay and len(modules) > 1:
-                    gc.collect()
+                # just found to write surface 0, so show that rather than the
+                # surface it was handed and never touched
+                if current_slot and name in direct_framebuffer:
+                    current_slot = 0
 
-                    prev_plugin = image(screen.width, screen.height)
-                    prev_plugin.blit(screen, vec2(0, 0))
+                await flip(255 if current_slot else 0)
 
-                    current_plugin += 1
-                    current_plugin %= NUM_PLUGINS
-
-                    modules[current_plugin][1].update()
-
-                    next_plugin = image(screen.width, screen.height)
-                    next_plugin.blit(screen, vec2(0, 0))
-
-                    fade_start = time.ticks_ms()
-                    last_changed = time.time()
-                    fading = True
+                due = (time.time() - last_changed) > delay
+                if (due or not healthy) and len(modules) > 1:
+                    start_transition()
         else:
+            builtins.screen = surfaces[0]
+            # the surface belongs to no plugin now, so the next bind restores fully
+            slot_owner[0] = None
             show_no_plugins()
-            display.update()
+            await flip(0)
 
         await asyncio.sleep_ms(10)
 
@@ -480,6 +668,11 @@ display.update()
 
 print(config.wifi_hostname)
 DOMAIN = f"{config.wifi_hostname}.local"
+
+# Core1 owns the surfaces between update() and the flip completing. Up to here
+# the blocking wait is what keeps the next clear off a frame core1 is still
+# reading; from here draw() waits cooperatively so the web server can run.
+display.set_blocking(False)
 
 loop.create_task(draw())
 loop.create_task(refresh_index())
