@@ -59,10 +59,31 @@ disabled_plugins = []
 NUM_PLUGINS = 0
 modules = []
 
+# Pending config save, flushed by flush_config()
+config_dirty = False
+CONFIG_FLUSH_DELAY = 2
+
 cx, cy = screen.width / 2, screen.height / 2
 
 
 def write_config():
+    """Mark the config for saving. A flash write takes the multicore lockout, so
+    coalesce the run of them a handful of settings clicks produces."""
+    global config_dirty
+    config_dirty = True
+
+
+async def flush_config():
+    global config_dirty
+
+    while True:
+        await asyncio.sleep(CONFIG_FLUSH_DELAY)
+        if config_dirty:
+            config_dirty = False
+            save_config()
+
+
+def save_config():
     lines = []
     with open("config.py", "r") as infile:
         lines = infile.read().split("\n")
@@ -112,6 +133,21 @@ def load_plugins():
 
     # reset the current to zero, start from the beginning.
     current_plugin = 0
+
+
+def resync_modules():
+    """Match the module order to enabled_plugins without re-importing anything."""
+    global current_plugin, fading
+
+    if not modules:
+        return
+
+    showing = modules[current_plugin][0]
+    modules.sort(key=lambda entry: enabled_plugins.index(entry[0]))
+
+    # prev_plugin indexes the list as it was, so drop any transition in flight
+    fading = False
+    current_plugin = [entry[0] for entry in modules].index(showing)
 
 
 def rmtree(d):
@@ -172,12 +208,14 @@ def device_settings(request):
 
 @server.route("/reorder", methods=["POST"])
 def reorder_plugins(request):
-    if request.method == "POST":
+    global delay
 
+    if request.method == "POST":
+        # only the dwell time, so nothing needs re-importing
         config.delay = request.form["delay_time"]
+        delay = int(config.delay)
 
         write_config()
-        load_plugins()
 
     return redirect("/")
 
@@ -205,7 +243,10 @@ def position(request):
 
     config.enabled_plugins = enabled_plugins
     write_config()
-    load_plugins()
+
+    # the set is unchanged, so permute what's already imported and stay on the
+    # plugin that's showing rather than restarting the rotation
+    resync_modules()
 
     return "OK", 200
 
@@ -442,4 +483,5 @@ DOMAIN = f"{config.wifi_hostname}.local"
 
 loop.create_task(draw())
 loop.create_task(refresh_index())
+loop.create_task(flush_config())
 server.run(host="0.0.0.0", port=80)
