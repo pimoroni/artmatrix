@@ -86,6 +86,13 @@ def log(level, text):
   datetime = datetime_string()
   log_entry = "{0} [{1:8} /{2:>4}kB] {3}".format(datetime, level, round(gc.mem_free() / 1024), text)
   print(log_entry)
+
+  # Set log_file to None to keep the console output but skip the flash write. A
+  # write takes the multicore lockout, so on a per-request log it stalls both
+  # cores and wears flash for every asset fetch.
+  if not log_file:
+    return
+
   with open(log_file, "a") as logfile:
     logfile.write(log_entry + "\n")
 

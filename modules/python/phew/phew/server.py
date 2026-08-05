@@ -1,7 +1,12 @@
 import uasyncio
 import os
+import sys
 import time
 from . import logging
+
+# Bytes per read when streaming a file. Each chunk costs a drain, and the draw
+# task can hold the loop for tens of milliseconds between them.
+FILE_CHUNK_SIZE = 4096
 
 _routes = []
 catchall_handler = None
@@ -99,7 +104,8 @@ class FileResponse(Response):
     self.file = file
 
     try:
-      if (os.stat(self.file)[0] & 0x4000) == 0:
+      stat = os.stat(self.file)
+      if (stat[0] & 0x4000) == 0:
         self.status = 200
 
         # auto set content type
@@ -107,7 +113,13 @@ class FileResponse(Response):
         if extension in content_type_map:
           self.headers["Content-Type"] = content_type_map[extension]
 
-        self.headers["Content-Length"] = os.stat(self.file)[6]
+        self.headers["Content-Length"] = stat[6]
+
+        # Size and mtime as an opaque validator, so a client can revalidate with
+        # If-None-Match and take a 304 instead of refetching the whole file.
+        # An ETag avoids formatting an HTTP date, which MicroPython's 2000-based
+        # epoch makes awkward to get right.
+        self.headers["ETag"] = '"{0}-{1}"'.format(stat[6], stat[8])
     except OSError:
       return False
 
@@ -257,11 +269,18 @@ async def _handle_request(reader, writer):
         form_data += data
       request.form = _parse_query_string(form_data.decode())
 
-  route = _match_route(request)
-  if route:
-    response = route.call_handler(request)
-  elif catchall_handler:
-    response = catchall_handler(request)
+  # A handler raising would otherwise kill this task with the socket still open,
+  # leaving the client to hang until it times out.
+  try:
+    route = _match_route(request)
+    if route:
+      response = route.call_handler(request)
+    elif catchall_handler:
+      response = catchall_handler(request)
+  except Exception as e:  # noqa: BLE001
+    logging.exception(f"! {request.method} {request.path} raised {e}")
+    sys.print_exception(e)
+    response = ("500 Internal Server Error", 500, "text/plain")
 
   # if shorthand body generator only notation used then convert to tuple
   if type(response).__name__ == "generator":
@@ -281,6 +300,18 @@ async def _handle_request(reader, writer):
     if hasattr(body, "__len__"):
       response.add_header("Content-Length", len(body))
 
+  # the client already holds this file, so send the validator back and no body
+  send_body = True
+  if isinstance(response, FileResponse) and response.status == 200:
+    if request.headers.get("if-none-match") == response.headers.get("ETag"):
+      response.status = 304
+      response.headers.pop("Content-Length", None)
+      send_body = False
+
+  # the socket closes below, so say so rather than let the client attempt to
+  # reuse the connection and hit the FIN
+  response.headers["Connection"] = "close"
+
   # write status line
   status_message = status_message_map.get(response.status, "Unknown")
   writer.write(f"HTTP/1.1 {response.status} {status_message}\r\n".encode("ascii"))
@@ -292,11 +323,13 @@ async def _handle_request(reader, writer):
   # blank line to denote end of headers
   writer.write("\r\n".encode("ascii"))
 
-  if isinstance(response, FileResponse):
+  if not send_body:
+    await writer.drain()
+  elif isinstance(response, FileResponse):
     # file
     with open(response.file, "rb") as f:
       while True:
-        chunk = f.read(1024)
+        chunk = f.read(FILE_CHUNK_SIZE)
         if not chunk:
           break
         writer.write(chunk)
