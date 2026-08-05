@@ -122,9 +122,14 @@ def rmtree(d):
 @server.catchall()
 def catchall(request):
 
-    # check if requested file exists
+    # the path is pasted straight onto html/, so keep it inside that directory
+    if ".." in request.path:
+        return "404 Not Found Buddy!", 404
+
+    # check if requested file exists. server.file_exists excludes directories,
+    # unlike the builtin: opening one mid-response raises and drops the socket.
     file = f"html{request.path}"
-    if file_exists(file):
+    if server.file_exists(file):
         return serve_file(file)
 
     # requested domain was wrong
