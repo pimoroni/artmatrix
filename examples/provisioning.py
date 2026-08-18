@@ -98,13 +98,13 @@ def draw_qr_code(ox, oy, size, code):
                 screen.rectangle(ox + x * module_size, oy + y * module_size, module_size, module_size)
 
 
-screen.pen = color.rgb(0, 0, 0)
+screen.pen = color.rgb(0, 0, 0, 75)
 screen.clear()
 code.set_text(qr_payload)
-draw_qr_code(0, 8, 100, code)
+draw_qr_code(0, 11, 100, code)
 screen.pen = color.white
-screen.text("Connect to:", 5, screen.height - 30)
-screen.text(f"{ssid}", 5, screen.height - 17)
+screen.text("Connect to:", 5, screen.height - 29)
+screen.text(f"{ssid}", 5, screen.height - 16)
 display.update()
 
 
