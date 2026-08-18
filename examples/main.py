@@ -5,12 +5,24 @@ import json
 import os
 import sys
 import time
+import math
 
 import fetch
 import mip
 import ntptime
 from easing import easeOutCubic
 from phew import logging, redirect, render_template, serve_file, server
+import splash
+
+time.sleep(1)
+
+# run the plash screen and store a copy of the last frame
+static_splash = splash.run()
+
+# We don't need anything related to the boot animation anymore, so we can remove it.
+del splash
+del sys.modules["splash"]
+gc.collect()
 
 # Keep the request log on the console only. Writing it takes the multicore
 # lockout, so a per-request flash append stalls both cores and wears flash for
@@ -52,6 +64,7 @@ def apply_state(surface, state):
 ###
 # Provisioning
 ###
+
 
 loop = asyncio.get_event_loop()
 
@@ -522,13 +535,32 @@ async def refresh_index():
             await asyncio.sleep(60)
 
 
-def draw_wifi_icon(col):
-    screen.pen = col
-    wifi_shape = shape.pie(cx, cy + 30, 50, -45, 45)
-    wifi_outline = shape.pie(cx, cy + 30, 50, -45, 45).stroke(4)
-    screen.shape(wifi_shape)
+def draw_wifi_icon(connected):
+
+    radius = 10
+    arc = 50
+    line_angle = math.radians(arc)
+    dx = ((radius * 2) / 2) * math.cos(line_angle)
+    dy = ((radius * 2) / 2) * math.sin(line_angle)
+    oy = -7
+    ox = -1
+    x1 = (screen.width / 2)
+    y1 = 23
+
     screen.pen = color.white
-    screen.shape(wifi_outline)
+    for r in range(0, radius + 1, 5):
+        screen.shape(shape.arc(x1, y1, r, r + 3, -arc, arc))
+    screen.shape(shape.circle(x1, y1 - 1, 2))
+
+    if not connected:
+        screen.pen = color.red
+        screen.font = font.smart
+        screen.shape(shape.line(x1 + ox - dx, y1 + oy - dy, x1 + ox + dx, y1 + oy + dy, 2))
+
+        w, h = screen.measure_text("Connecting")
+        x = (screen.width / 2) - (w / 2)
+        screen.pen = color.white
+        screen.text("Connecting", vec2(x, 100))
 
 
 def show_no_plugins():
@@ -677,9 +709,7 @@ async def draw():
 
         await asyncio.sleep_ms(10)
 
-screen.pen = color.black
-screen.clear()
-draw_wifi_icon(color.red)
+draw_wifi_icon(wifi.is_connected())
 display.update()
 
 wifi.connect()
@@ -701,12 +731,18 @@ except OSError:
 
 load_plugins()
 
-screen.pen = color.black
-screen.clear()
-draw_wifi_icon(color.green)
+# blit the last frame of the splash as a "clear"
+screen.blit(static_splash, vec2(0, 0))
+
+# draw the connected icon and update the display
+draw_wifi_icon(wifi.is_connected())
 display.update()
 
+# we're done with the splash frame so we can remove it now.
+del static_splash
+
 print(config.wifi_hostname)
+print(wifi.ipv4())
 DOMAIN = f"{config.wifi_hostname}.local"
 
 # Core1 owns the surfaces between update() and the flip completing. Up to here
