@@ -8,6 +8,12 @@
   <title>Art Matrix Setup</title>
 </head>
 
+<header>
+    <img src="/static/logo.svg" alt="Art Matrix">
+</header>
+
+<hr>
+
 <body>
   <section id="wifi_details">
     <form id="main" action="/provision-welcome" method="post">
@@ -212,5 +218,5 @@
     }
   </script>
 </body>
-
+{{ render_template("/html/footer.html") }}
 </html>

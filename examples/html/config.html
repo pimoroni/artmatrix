@@ -6,13 +6,17 @@
   <title>Config</title>
   <link rel="stylesheet" href="/static/stylesheet.css">
 </head>
+<header>
+    <a href="/"><img src="/static/logo.svg" alt="Art Matrix"></a>
+</header>
+<hr>
 <body>
   <main>
     <h1>Plugin Settings</h1>
-    <button type="button" class="secondary" onclick="location.href='/'">←</button>
     {{ render_template(f"lib/plugins/{plugin}/config.html", plugin=plugin, placeholder=placeholder) }}
+    <hr>
     <button type="button" class="secondary" onclick="location.href='/'">←</button>
   </main>
 </body>
+{{ render_template("/html/footer.html") }}
 </html>
- 
