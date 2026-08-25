@@ -35,8 +35,44 @@
     </form>
     <button type="submit" form="plugin-reorder">Apply</button>
 </section>
+<hr>
+<section id="display">
+    <h3>Display:</h3>
+    <label>Global brightness
+      <small>Applies to every plugin. Takes effect straight away.</small>
+      <div>
+        <input type="range" id="brightness" name="brightness"
+               min="5" max="100" step="1" value="{{config.brightness}}">
+        <output for="brightness" id="brightness_value">{{config.brightness}}</output>
+      </div>
+    </label>
+</section>
+<hr>
+<section id="reboot">
+    <h3>System:</h3>
+    <form id="reboot-art-matrix" action="/reboot" method="post">
+        <input type="hidden" name="confirm" value="1">
+        <button type="submit" class="warning" >Reboot</button>
+    </form>
+</section>
 
 {{ render_template("/html/footer.html") }}
+
+<script>
+  (() => {
+    const slider  = document.getElementById("brightness");
+    const readout = document.getElementById("brightness_value");
+
+    slider.addEventListener("input", () => {
+      readout.textContent = slider.value;
+    });
+
+    slider.addEventListener("change", () => {
+      fetch(`/brightness?value=${slider.value}`, { method: "POST" })
+        .catch(() => {});
+    });
+  })();
+</script>
 
 <script>
     // The index is fetched in the background on the device, so a cold boot can

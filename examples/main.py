@@ -2,17 +2,32 @@ import asyncio
 import builtins
 import gc
 import json
+import math
 import os
 import sys
 import time
-import math
 
 import fetch
+import machine
 import mip
 import ntptime
-from easing import easeOutCubic
-from phew import logging, redirect, render_template, serve_file, server
+import sdcard
 import splash
+from easing import easeOutCubic
+from machine import Pin
+from phew import logging, redirect, render_template, serve_file, server
+
+sd_present = False
+sd_logo = image.load("/sd_card_icon.png")
+
+try:
+    spi = machine.SPI(0, baudrate=1_000_000, polarity=0, phase=0, sck=Pin.board.SD_SCLK, mosi=Pin.board.SD_CMD, miso=Pin.board.SD_SD0)
+    sd = sdcard.SDCard(spi, Pin(Pin.board.SD_CS, Pin.OUT, value=1))
+    os.mount(sd, "/sd")
+    print(os.listdir("/sd"))
+    sd_present = True
+except OSError:
+    pass
 
 time.sleep(1)
 
@@ -101,6 +116,10 @@ current_plugin = 0
 enabled_plugins = []
 disabled_plugins = []
 modules = []
+
+# global brightness and setting
+brightness = int(config.brightness)
+display.set_brightness(config.brightness / 100)
 
 # Per-plugin image state, and which plugin currently occupies each surface
 plugin_state = {}
@@ -378,6 +397,30 @@ def device_settings(request):
             config.enabled_plugins.append(plugin)
             write_config()
             load_plugins()
+    return render_template("html/settings.html")
+
+
+@server.route("/reboot", methods=["POST"])
+def device_reboot(request):
+
+    if request.method == "POST":
+        machine.reset()
+
+    return render_template("html/settings.html")
+
+
+@server.route("/brightness", methods=["POST"])
+def device_brightness(request):
+
+    # clamp it
+    config.brightness = (max(0, min(int(request.query.get("value", 100)), 100)))
+
+    # write it
+    write_config()
+
+    # bop it, wait no, set it!
+    display.set_brightness(config.brightness / 100)
+
     return render_template("html/settings.html")
 
 
@@ -736,7 +779,11 @@ screen.blit(static_splash, vec2(0, 0))
 
 # draw the connected icon and update the display
 draw_wifi_icon(wifi.is_connected())
+if sd_present:
+    screen.blit(sd_logo, 5, 5)
 display.update()
+
+del sd_logo
 
 # we're done with the splash frame so we can remove it now.
 del static_splash

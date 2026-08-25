@@ -630,3 +630,26 @@ button[aria-busy=true]::after,
 #timing > button { flex: 0 0 auto; }
 
 #wifi_details { max-width: none; margin: 0; padding: 0; }
+
+button.warning {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+button.warning:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--bg);
+}
+
+button.warning:focus-visible { outline-color: var(--danger); }
+
+output {
+  min-width: 3.5ch;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

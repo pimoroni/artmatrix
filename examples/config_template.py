@@ -19,3 +19,6 @@ enabled_plugins = []
 
 # Plugins that are installed but are not to be shown
 disabled_plugins = []
+
+# global brightness
+brightness = 1.0
