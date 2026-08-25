@@ -21,4 +21,4 @@ enabled_plugins = []
 disabled_plugins = []
 
 # global brightness
-brightness = 1.0
+brightness = 100
