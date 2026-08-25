@@ -8,7 +8,7 @@ def run():
     HEIGHT = screen.height
     screen.antialias = image.X4
 
-    am_logo = image.load("artmatrix_logo.png")
+    am_logo = image.load("/assets/artmatrix_logo.png")
 
     dot_pos = [(x * SPACING, y * SPACING, (x * SPACING) / WIDTH, ((x * SPACING) * 2) % 255) for x in range((WIDTH - 1) // SPACING) for y in range((HEIGHT - 1) // SPACING)]
     last_frame = time.ticks_ms()

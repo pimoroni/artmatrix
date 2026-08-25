@@ -1,6 +1,8 @@
 *.py
 *.af
-*.png
+assets/*.png
+defaults/*.py
+lib/*.py
 html/static/*.css
 html/static/*.svg
 html/*.html

@@ -55,7 +55,7 @@ def copy_file(source, target):
 
 # create fresh config file if missing
 if not file_exists("config.py"):
-    copy_file("config_template.py", "config.py")
+    copy_file("/defaults/config.py", "config.py")
 
 
 # write the current values in config to the config.py file

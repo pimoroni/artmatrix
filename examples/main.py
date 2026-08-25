@@ -18,7 +18,7 @@ from machine import Pin
 from phew import logging, redirect, render_template, serve_file, server
 
 sd_present = False
-sd_logo = image.load("/sd_card_icon.png")
+sd_logo = image.load("/assets/sd_card_icon.png")
 
 try:
     spi = machine.SPI(0, baudrate=1_000_000, polarity=0, phase=0, sck=Pin.board.SD_SCLK, mosi=Pin.board.SD_CMD, miso=Pin.board.SD_SD0)

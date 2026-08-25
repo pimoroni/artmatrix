@@ -1,4 +1,4 @@
-# enviro config file
+# art matrix config file
 
 # you may edit this file by hand but if you enter provisioning mode
 # then the file will be automatically overwritten with new details
