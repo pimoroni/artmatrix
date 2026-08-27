@@ -13,7 +13,7 @@
 <body>
   <main>
     <h1>Plugin Settings</h1>
-    {{ render_template(f"lib/plugins/{plugin}/config.html", plugin=plugin, placeholder=placeholder) }}
+    {{ render_template(config_page, plugin=plugin, placeholder=placeholder) }}
     <hr>
     <button type="button" class="secondary" onclick="location.href='/'">←</button>
   </main>

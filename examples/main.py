@@ -31,6 +31,22 @@ except OSError:
 
 time.sleep(1)
 
+# Holding A and C through power-on forces provisioning.
+PROVISION_BUTTONS = (Pin(BUTTON_A, Pin.IN, Pin.PULL_UP), Pin(BUTTON_C, Pin.IN, Pin.PULL_UP))
+PROVISION_HOLD = 1.0
+
+
+def provision_buttons_held(duration):
+    held = True
+    end = time.ticks_add(time.ticks_ms(), int(duration * 1000))
+    while held and time.ticks_diff(end, time.ticks_ms()) > 0:
+        held = not any(button.value() for button in PROVISION_BUTTONS)
+        time.sleep(0.01)
+    return held
+
+
+force_provisioning = provision_buttons_held(PROVISION_HOLD)
+
 # run the plash screen and store a copy of the last frame
 static_splash = splash.run()
 
@@ -83,7 +99,7 @@ def apply_state(surface, state):
 
 loop = asyncio.get_event_loop()
 
-needs_provisioning = False
+needs_provisioning = force_provisioning
 
 try:
     import config  # fails to import (missing/corrupt) go into provisioning
@@ -522,14 +538,26 @@ def configure_plugin(request):
     plugin = request.query["plugin"]
     p = __import__(f"/lib/plugins/{plugin}")
 
+    # Plugins without a settings page fall back to a default
+    config_page = f"lib/plugins/{plugin}/config.html"
+    try:
+        os.stat(config_page)
+        configurable = True
+    except OSError:
+        config_page = "html/no-config.html"
+        configurable = False
+
     if request.method == "POST":
         # Check if the plugin has it own processor
         process = getattr(p, "process_config", None)
         if process:
             process(request.form)
-        else:
+        elif configurable:
             with open(f"lib/plugins/{plugin}/config.json", "w") as file:
                 json.dump(request.form, file)
+        else:
+            # nothing to configure
+            return redirect(f"/config?plugin={plugin}", status=303)
 
         del sys.modules[f"/lib/plugins/{plugin}"]
         gc.collect()
@@ -543,7 +571,7 @@ def configure_plugin(request):
 
         return redirect(f"/config?plugin={plugin}", status=303)
 
-    return render_template("html/config.html", plugin=plugin, placeholder=p)
+    return render_template("html/config.html", plugin=plugin, placeholder=p, config_page=config_page)
 
 
 @server.route("/plugins.json")
