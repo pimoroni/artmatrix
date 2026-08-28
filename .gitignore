@@ -37,10 +37,18 @@ build-*
 build
 board/version.py
 
+# Firmware images
+*.uf2
+
+# Dependency checkouts the CI scripts make
+ci/micropython/
+ci/pimoroni-pico/
+ci/picovector-micropython/
+ci/tools/
+
 # Apple filesystem cruft
 .DS_Store
 
 # Other cruft
 venv
 .vscode
-
