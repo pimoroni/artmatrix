@@ -116,7 +116,7 @@ import wifi  # noqa E402
 
 # Location of plugin index
 INDEX_HOST = "raw.githubusercontent.com"
-INDEX_PATH = "/pimoroni/monkey-banana/refs/heads/main/index.json"
+INDEX_PATH = "/pimoroni/artmatrix-plugins/refs/heads/main/index.json"
 INDEX_CACHE = "/index-cache.json"
 INDEX_INTERVAL = 15 * 60
 
@@ -405,7 +405,7 @@ def wrong_host_redirect(_request):
 def device_settings(request):
     if request.method == "POST":
         plugin = request.form["selected-plugin"]
-        install_url = f"github:pimoroni/monkey-banana/{plugin}"
+        install_url = f"github:pimoroni/artmatrix-plugins/{plugin}"
         mip.install(install_url)
 
         # add the newly installed plugin to the enabled list and save it.
