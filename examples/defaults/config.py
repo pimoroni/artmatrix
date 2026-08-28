@@ -12,7 +12,7 @@ wifi_hostname = None
 wifi_country = "GB"
 
 # Time to display each plugin before changing
-delay = 2
+delay = 10
 
 # Plugins that are set to be shown, including the order.
 enabled_plugins = []
