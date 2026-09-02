@@ -513,65 +513,73 @@ def remove_plugin(request):
 
     # parse out the plugin name and create the path to remove
     plugin_name = request.query["plugin"]
-    directory = f"lib/plugins/{plugin_name}/"
 
-    # remove the plugin directory
-    rmtree(directory)
+    # check if the plugin is in one of the lists
+    # prevents a manually written POST req removing something it shouldn't
+    if plugin_name in (config.enabled_plugins + config.disabled_plugins):
+        directory = f"lib/plugins/{plugin_name}/"
 
-    # remove the entries from the enabled/disaabled lists
-    if plugin_name in config.enabled_plugins:
-        config.enabled_plugins.remove(plugin_name)
-    if plugin_name in config.disabled_plugins:
-        config.disabled_plugins.remove(plugin_name)
+        # remove the plugin directory
+        rmtree(directory)
 
-    # write this config
-    write_config()
-    load_plugins()
+        # remove the entries from the enabled/disaabled lists
+        if plugin_name in config.enabled_plugins:
+            config.enabled_plugins.remove(plugin_name)
+        if plugin_name in config.disabled_plugins:
+            config.disabled_plugins.remove(plugin_name)
 
-    # redirect back to the config page
-    return "OK", 200
+        # write this config
+        write_config()
+        load_plugins()
+
+        # redirect back to the config page
+        return "OK", 200
+    return "404 Not Found Buddy!", 404
 
 
 @server.route("/config", methods=["GET", "POST"])
 def configure_plugin(request):
 
     plugin = request.query["plugin"]
-    p = __import__(f"/lib/plugins/{plugin}")
 
-    # Plugins without a settings page fall back to a default
-    config_page = f"lib/plugins/{plugin}/config.html"
-    try:
-        os.stat(config_page)
-        configurable = True
-    except OSError:
-        config_page = "html/no-config.html"
-        configurable = False
+    if plugin in (config.enabled_plugins + config.disabled_plugins):
+        p = __import__(f"/lib/plugins/{plugin}")
 
-    if request.method == "POST":
-        # Check if the plugin has it own processor
-        process = getattr(p, "process_config", None)
-        if process:
-            process(request.form)
-        elif configurable:
-            with open(f"lib/plugins/{plugin}/config.json", "w") as file:
-                json.dump(request.form, file)
-        else:
-            # nothing to configure
+        # Plugins without a settings page fall back to a default
+        config_page = f"lib/plugins/{plugin}/config.html"
+        try:
+            os.stat(config_page)
+            configurable = True
+        except OSError:
+            config_page = "html/no-config.html"
+            configurable = False
+
+        if request.method == "POST":
+            # Check if the plugin has it own processor
+            process = getattr(p, "process_config", None)
+            if process:
+                process(request.form)
+            elif configurable:
+                with open(f"lib/plugins/{plugin}/config.json", "w") as file:
+                    json.dump(request.form, file)
+            else:
+                # nothing to configure
+                return redirect(f"/config?plugin={plugin}", status=303)
+
+            del sys.modules[f"/lib/plugins/{plugin}"]
+            gc.collect()
+
+            # only enabled plugins are in modules, a disabled one reloads when enabled
+            for index, (name, _module) in enumerate(modules):
+                if name == plugin:
+                    modules[index] = (plugin, import_plugin(plugin))
+                    reset_transition()
+                    break
             return redirect(f"/config?plugin={plugin}", status=303)
 
-        del sys.modules[f"/lib/plugins/{plugin}"]
-        gc.collect()
+        return render_template("html/config.html", plugin=plugin, placeholder=p, config_page=config_page)
 
-        # only enabled plugins are in modules, a disabled one reloads when enabled
-        for index, (name, _module) in enumerate(modules):
-            if name == plugin:
-                modules[index] = (plugin, import_plugin(plugin))
-                reset_transition()
-                break
-
-        return redirect(f"/config?plugin={plugin}", status=303)
-
-    return render_template("html/config.html", plugin=plugin, placeholder=p, config_page=config_page)
+    return "404 Not Found Buddy!", 404
 
 
 @server.route("/plugins.json")
