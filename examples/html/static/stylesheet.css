@@ -653,6 +653,8 @@ button[aria-busy=true]::after,
 
 #wifi_details { max-width: none; margin: 0; padding: 0; }
 
+#reboot form { margin-top: 1.5rem; }
+
 button.warning {
   background: transparent;
   border-color: var(--danger);

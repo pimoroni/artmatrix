@@ -425,6 +425,18 @@ def device_reboot(request):
     return render_template("html/settings.html")
 
 
+@server.route("/synctime", methods=["POST"])
+def device_sync_time(_request):
+
+    try:
+        ntptime.settime()
+    except (OSError, OverflowError, ValueError):
+        return "Time sync failed", 502, "text/plain"
+
+    year, month, day, hour, minute, second = time.localtime()[:6]
+    return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d} UTC", 200, "text/plain"
+
+
 @server.route("/brightness", methods=["POST"])
 def device_brightness(request):
 

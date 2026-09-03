@@ -49,6 +49,14 @@
 <hr>
 <section id="reboot">
     <h3>System:</h3>
+    <div>
+      <label>Clock</label>
+      <small>Sets the clock from an internet time server. Needs Wi-Fi.</small>
+      <div>
+        <button type="button" id="sync_time">Sync Time</button>
+        <output for="sync_time" id="sync_time_status"></output>
+      </div>
+    </div>
     <form id="reboot-art-matrix" action="/reboot" method="post"
           onsubmit="return window.confirm('Reboot the Art Matrix?');">
         <input type="hidden" name="confirm" value="1">
@@ -70,6 +78,25 @@
     slider.addEventListener("change", () => {
       fetch(`/brightness?value=${slider.value}`, { method: "POST" })
         .catch(() => {});
+    });
+
+    const sync    = document.getElementById("sync_time");
+    const status  = document.getElementById("sync_time_status");
+
+    sync.addEventListener("click", () => {
+      sync.disabled = true;
+      status.textContent = "Syncing…";
+
+      // phew needs at least one field or the body arrives empty
+      fetch("/synctime", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "confirm=1"
+      })
+        .then((response) => response.text())
+        .then((text) => { status.textContent = text; })
+        .catch(() => { status.textContent = "Time sync failed"; })
+        .finally(() => { sync.disabled = false; });
     });
   })();
 </script>
