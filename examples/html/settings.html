@@ -3,7 +3,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="static/stylesheet.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap&icon_names=arrow_downward,arrow_upward,delete,settings">
     <title>Art Matrix Configuration</title>
 </head>
 
@@ -50,7 +49,8 @@
 <hr>
 <section id="reboot">
     <h3>System:</h3>
-    <form id="reboot-art-matrix" action="/reboot" method="post">
+    <form id="reboot-art-matrix" action="/reboot" method="post"
+          onsubmit="return window.confirm('Reboot the Art Matrix?');">
         <input type="hidden" name="confirm" value="1">
         <button type="submit" class="warning" >Reboot</button>
     </form>
@@ -109,15 +109,15 @@
                 for (const plugin of data[key]) {
 
                     var config_link = document.createElement("button");
-                    config_link.className = "material-symbols-outlined";
-                    config_link.textContent = "settings";
+                    config_link.className = "icon settings";
+                    config_link.title = "Configure";
                     config_link.onclick = function() {
                         window.location.href = `/config?plugin=${plugin}`;
                     }
                     
                     var move_pos_up = document.createElement("button");
-                    move_pos_up.className = "material-symbols-outlined";
-                    move_pos_up.textContent = "arrow_upward";
+                    move_pos_up.className = "icon arrow-up";
+                    move_pos_up.title = "Move up";
                     move_pos_up.onclick = function() {
                         fetch(`/position?plugin=${plugin}&action=up`, {
                             method: 'POST',
@@ -125,8 +125,8 @@
                     }
                     
                     var move_pos_down = document.createElement("button");
-                    move_pos_down.className = "material-symbols-outlined";
-                    move_pos_down.textContent = "arrow_downward";
+                    move_pos_down.className = "icon arrow-down";
+                    move_pos_down.title = "Move down";
                     move_pos_down.onclick = function() {
                         fetch(`/position?plugin=${plugin}&action=down`, {
                             method: 'POST',
@@ -134,9 +134,10 @@
                     }
 
                     var remove_link = document.createElement("button");
-                    remove_link.className = "material-symbols-outlined";
-                    remove_link.textContent = "delete";
+                    remove_link.className = "icon delete";
+                    remove_link.title = "Delete";
                     remove_link.onclick = function() {
+                        if (!window.confirm(`Delete ${plugin}? This removes its files from the device.`)) return;
                         fetch(`/remove?plugin=${plugin}`, {
                             method: 'POST',
                         }).then(() => loadPluginList());
