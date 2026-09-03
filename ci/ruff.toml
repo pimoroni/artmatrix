@@ -22,6 +22,9 @@ builtins = [
 # artmatrix.py
     "display",
     "screen",
+    "leds",
+    "sensor",
+    "UID",
     "BUTTON_A",
     "BUTTON_B",
     "BUTTON_C",
