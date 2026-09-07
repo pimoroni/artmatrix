@@ -112,6 +112,32 @@ if needs_provisioning:
     import provisioning    # noqa F401
     # control never returns to here, provisioning takes over completely
 
+
+def migrate_config():
+    defaults = {}
+    try:
+        with open("/defaults/config.py") as infile:
+            exec(infile.read(), defaults)
+    except OSError:
+        print("could not read /defaults/config.py, skipping config migration")
+        return
+
+    added = [k for k in defaults if not k.startswith("_") and not hasattr(config, k)]
+    for key in added:
+        setattr(config, key, defaults[key])
+
+    if added:
+        print("config.py is missing", ", ".join(added), "- adding from defaults")
+        with open("config.py", "a") as outfile:
+            for key in added:
+                outfile.write(f"\n# {key} - added in an update or restored from default\n")
+                outfile.write(f"{key} = {repr(defaults[key])}\n")
+
+
+# check and add new settings to the config file before reading them.
+# for cases where the firmware update has added new config elements :)
+migrate_config()
+
 import wifi  # noqa E402
 
 # Location of plugin index
