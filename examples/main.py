@@ -140,6 +140,11 @@ migrate_config()
 
 import wifi  # noqa E402
 
+# How long each connection attempt gets, and how many attempts.
+WIFI_DEADLINE = 60
+WIFI_ATTEMPTS = 3
+network_failed = False
+
 # Location of plugin index
 INDEX_HOST = "raw.githubusercontent.com"
 INDEX_PATH = "/pimoroni/artmatrix-plugins/refs/heads/main/index.json"
@@ -359,8 +364,9 @@ def load_plugins():
     if to_add or len(enabled_plugins) + len(disabled_plugins) != len(combined):
         write_config()
 
-    # import enabled plugins
-    modules = [(plugin, import_plugin(plugin)) for plugin in enabled_plugins]
+    # import enabled plugins. Plugins only run with a network, and this is the
+    # one place /active and /remove could otherwise start the rotation from.
+    modules = [] if network_failed else [(plugin, import_plugin(plugin)) for plugin in enabled_plugins]
 
     # reset the current to zero, start from the beginning.
     current_plugin = 0
@@ -652,7 +658,7 @@ async def refresh_index():
             await asyncio.sleep(60)
 
 
-def draw_wifi_icon(connected):
+def draw_wifi_icon(connected, attempt=1):
 
     radius = 10
     arc = 50
@@ -674,10 +680,11 @@ def draw_wifi_icon(connected):
         screen.font = font.smart
         screen.shape(shape.line(x1 + ox - dx, y1 + oy - dy, x1 + ox + dx, y1 + oy + dy, 2))
 
-        w, h = screen.measure_text("Connecting")
+        label = "Connecting" if attempt == 1 else f"Attempt {attempt} of {WIFI_ATTEMPTS}"
+        w, h = screen.measure_text(label)
         x = (screen.width / 2) - (w / 2)
         screen.pen = color.white
-        screen.text("Connecting", vec2(x, 100))
+        screen.text(label, vec2(x, 100))
 
 
 def show_no_plugins():
@@ -703,6 +710,45 @@ def show_no_plugins():
     y += 15
     screen.pen = color.white
     screen.text("in your browser.", 5, y)
+
+
+def show_wifi_failed():
+
+    screen.pen = color.rgb(0, 0, 0)
+    screen.clear()
+
+    y = 5
+    screen.pen = color.white
+    screen.font = rom_font.nope
+    screen.text("No Wi-Fi :(", 5, y)
+    y += 25
+    screen.text("Can't reach", 5, y)
+    y += 15
+
+    # A long SSID is trimmed
+    name = f"{config.wifi_ssid}"
+    if screen.measure_text(name)[0] > screen.width - 5:
+        while name and screen.measure_text(name + "…")[0] > screen.width - 5:
+            name = name[:-1]
+        name += "…"
+    screen.pen = color.blue
+    screen.text(name, 5, y)
+    y += 23
+    screen.pen = color.white
+    screen.text("RESET to retry.", 5, y)
+    y += 15
+    screen.text("Hold A+C and", 5, y)
+    y += 15
+    screen.text("RESET to change", 5, y)
+    y += 15
+    screen.text("Wi-Fi details.", 5, y)
+
+
+def wait_for_wifi(deadline):
+    while not wifi.is_connected() and time.ticks_diff(deadline, time.ticks_ms()) > 0:
+        wifi.tick()
+        time.sleep_ms(50)
+    return wifi.is_connected()
 
 
 FADE_DURATION = 500
@@ -819,25 +865,34 @@ async def draw():
             builtins.screen = surfaces[0]
             # the surface belongs to no plugin now, so the next bind restores fully
             slot_owner[0] = None
-            show_no_plugins()
+            if network_failed:
+                show_wifi_failed()
+            else:
+                show_no_plugins()
             await flip(0)
 
         frame_ms = time.ticks_diff(time.ticks_ms(), frame_start)
 
         await asyncio.sleep_ms(10)
 
-draw_wifi_icon(wifi.is_connected())
-display.update()
+for attempt in range(1, WIFI_ATTEMPTS + 1):
+    screen.blit(static_splash, vec2(0, 0))
+    draw_wifi_icon(False, attempt)
+    display.update()
 
-wifi.connect()
-while not wifi.is_connected():
-    wifi.tick()
+    wifi.disconnect()
+    wifi.connect()
+    if wait_for_wifi(time.ticks_add(time.ticks_ms(), WIFI_DEADLINE * 1000)):
+        break
 
-# ignore OSError and continue
-try:
-    ntptime.settime()
-except OSError:
-    pass
+network_failed = not wifi.is_connected()
+
+if not network_failed:
+    # ignore OSError and continue
+    try:
+        ntptime.settime()
+    except OSError:
+        pass
 
 
 try:
