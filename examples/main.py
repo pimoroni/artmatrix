@@ -443,8 +443,14 @@ def device_settings(request):
         # add the newly installed plugin to the enabled list and save it.
         if plugin not in config.enabled_plugins:
             config.enabled_plugins.append(plugin)
-            write_config()
-            load_plugins()
+            try:
+                load_plugins()
+            except MemoryError:
+                gc.collect()
+                config.enabled_plugins.remove(plugin)
+                load_plugins()
+            else:
+                write_config()
     return render_template("html/settings.html")
 
 
@@ -546,8 +552,15 @@ def set_active_state(request):
 
     config.enabled_plugins = enabled_plugins
     config.disabled_plugins = disabled_plugins
+    try:
+        load_plugins()
+    except MemoryError:
+        gc.collect()
+        enabled_plugins.remove(plugin_name)
+        disabled_plugins.append(plugin_name)
+        load_plugins()
+        return "Not enough memory to enable this plugin", 507
     write_config()
-    load_plugins()
 
     return "OK", 200
 
