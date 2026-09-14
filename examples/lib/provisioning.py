@@ -106,6 +106,7 @@ screen.pen = color.white
 screen.text("Connect to:", 5, screen.height - 29)
 screen.text(f"{ssid}", 5, screen.height - 16)
 display.update()
+leds((160, 0, 255))
 
 
 @server.route("/provision-welcome", methods=["GET", "POST"])
@@ -116,6 +117,7 @@ def provision_welcome(request):
         config.wifi_hostname = request.form["wifi_hostname"]
         config.provisioned = True
         write_config()
+        leds.clear()
         machine.reset()
     return render_template("html/provision-wifi.html")
 

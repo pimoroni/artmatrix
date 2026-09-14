@@ -364,9 +364,18 @@ def load_plugins():
     if to_add or len(enabled_plugins) + len(disabled_plugins) != len(combined):
         write_config()
 
-    # import enabled plugins. Plugins only run with a network, and this is the
-    # one place /active and /remove could otherwise start the rotation from.
-    modules = [] if network_failed else [(plugin, import_plugin(plugin)) for plugin in enabled_plugins]
+    # import enabled plugins. Plugins only run with a network
+    modules = []
+    for plugin in [] if network_failed else list(enabled_plugins):
+        try:
+            modules.append((plugin, import_plugin(plugin)))
+        except (ImportError, SyntaxError, OSError):
+            # a bad or partial install, disabled so the settings page says so
+            print(f"plugin {plugin} failed to import, disabling it:")
+            enabled_plugins.remove(plugin)
+            disabled_plugins.append(plugin)
+            config.disabled_plugins = sorted(disabled_plugins)
+            write_config()
 
     # reset the current to zero, start from the beginning.
     current_plugin = 0
@@ -888,6 +897,8 @@ async def draw():
 
         await asyncio.sleep_ms(10)
 
+leds((255, 120, 0))
+
 for attempt in range(1, WIFI_ATTEMPTS + 1):
     screen.blit(static_splash, vec2(0, 0))
     draw_wifi_icon(False, attempt)
@@ -899,6 +910,7 @@ for attempt in range(1, WIFI_ATTEMPTS + 1):
         break
 
 network_failed = not wifi.is_connected()
+leds((255, 0, 0) if network_failed else (0, 255, 0))
 
 if not network_failed:
     # ignore OSError and continue
@@ -924,6 +936,9 @@ draw_wifi_icon(wifi.is_connected())
 if sd_present:
     screen.blit(sd_logo, 5, 5)
 display.update()
+
+if not network_failed:
+    leds.clear()
 
 del sd_logo
 
