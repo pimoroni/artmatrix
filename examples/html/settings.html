@@ -51,17 +51,28 @@
     <h3>System:</h3>
     <div>
       <label>Clock</label>
-      <small>Sets the clock from an internet time server. Needs Wi-Fi.</small>
+      <small>Sync the clock with an internet time server.</small>
       <div>
         <button type="button" id="sync_time">Sync Time</button>
         <output for="sync_time" id="sync_time_status"></output>
       </div>
     </div>
-    <form id="reboot-art-matrix" action="/reboot" method="post"
-          onsubmit="return window.confirm('Reboot the Art Matrix?');">
-        <input type="hidden" name="confirm" value="1">
-        <button type="submit" class="warning" >Reboot</button>
-    </form>
+    <hr>
+    <div>
+      <label>Firmware</label>
+      <small>{{version}}</small>
+      <small><a href="https://github.com/pimoroni/artmatrix/releases" target="_blank" rel="noopener">Latest releases on GitHub</a></small>
+    </div>
+    <hr>
+    <div>
+      <label>Reboot</label>
+      <small>Restarts the Art Matrix. Your settings are kept.</small>
+      <form id="reboot-art-matrix" action="/reboot" method="post"
+            onsubmit="return window.confirm('Reboot the Art Matrix?');">
+          <input type="hidden" name="confirm" value="1">
+          <button type="submit" class="warning" >Reboot</button>
+      </form>
+    </div>
 </section>
 
 {{ render_template("/html/footer.html") }}

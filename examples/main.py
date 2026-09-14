@@ -13,6 +13,7 @@ import mip
 import ntptime
 import sdcard
 import splash
+import version
 from easing import easeOutCubic
 from machine import Pin
 from phew import logging, redirect, render_template, serve_file, server
@@ -150,6 +151,8 @@ INDEX_HOST = "raw.githubusercontent.com"
 INDEX_PATH = "/pimoroni/artmatrix-plugins/refs/heads/main/index.json"
 INDEX_CACHE = "/index-cache.json"
 INDEX_INTERVAL = 15 * 60
+
+FIRMWARE = version.BUILD or version.DATE
 
 # The index is fetched in the background and served from the cache. A blocking
 # requests.get() here froze the display and every other connection for the whole
@@ -460,7 +463,7 @@ def device_settings(request):
                 load_plugins()
             else:
                 write_config()
-    return render_template("html/settings.html")
+    return render_template("html/settings.html", version=FIRMWARE)
 
 
 @server.route("/reboot", methods=["POST"])
@@ -469,7 +472,7 @@ def device_reboot(request):
     if request.method == "POST":
         machine.reset()
 
-    return render_template("html/settings.html")
+    return render_template("html/settings.html", version=FIRMWARE)
 
 
 @server.route("/synctime", methods=["POST"])
@@ -496,7 +499,7 @@ def device_brightness(request):
     # bop it, wait no, set it!
     display.set_brightness(config.brightness / 100)
 
-    return render_template("html/settings.html")
+    return render_template("html/settings.html", version=FIRMWARE)
 
 
 @server.route("/reorder", methods=["POST"])
@@ -897,7 +900,7 @@ async def draw():
 
         await asyncio.sleep_ms(10)
 
-leds((255, 120, 0))
+leds(color.rgb(255, 120, 0))
 
 for attempt in range(1, WIFI_ATTEMPTS + 1):
     screen.blit(static_splash, vec2(0, 0))
@@ -910,7 +913,7 @@ for attempt in range(1, WIFI_ATTEMPTS + 1):
         break
 
 network_failed = not wifi.is_connected()
-leds((255, 0, 0) if network_failed else (0, 255, 0))
+leds(color.rgb(255, 0, 0) if network_failed else color.rgb(0, 255, 0))
 
 if not network_failed:
     # ignore OSError and continue

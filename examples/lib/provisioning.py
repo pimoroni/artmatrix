@@ -106,7 +106,7 @@ screen.pen = color.white
 screen.text("Connect to:", 5, screen.height - 29)
 screen.text(f"{ssid}", 5, screen.height - 16)
 display.update()
-leds((160, 0, 255))
+leds(color.rgb(160, 0, 255))
 
 
 @server.route("/provision-welcome", methods=["GET", "POST"])
