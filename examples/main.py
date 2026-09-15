@@ -624,16 +624,22 @@ def configure_plugin(request):
             configurable = False
 
         if request.method == "POST":
-            # Check if the plugin has it own processor
-            process = getattr(p, "process_config", None)
-            if process:
-                process(request.form)
-            elif configurable:
-                with open(f"lib/plugins/{plugin}/config.json", "w") as file:
-                    json.dump(request.form, file)
+            if "reset" in request.form:
+                try:
+                    os.remove(f"lib/plugins/{plugin}/config.json")
+                except OSError:
+                    print(f"{plugin} has no saved config to reset")
             else:
-                # nothing to configure
-                return redirect(f"/config?plugin={plugin}", status=303)
+                # Check if the plugin has it own processor
+                process = getattr(p, "process_config", None)
+                if process:
+                    process(request.form)
+                elif configurable:
+                    with open(f"lib/plugins/{plugin}/config.json", "w") as file:
+                        json.dump(request.form, file)
+                else:
+                    # nothing to configure
+                    return redirect(f"/config?plugin={plugin}", status=303)
 
             del sys.modules[f"/lib/plugins/{plugin}"]
             gc.collect()
@@ -646,7 +652,8 @@ def configure_plugin(request):
                     break
             return redirect(f"/config?plugin={plugin}", status=303)
 
-        return render_template("html/config.html", plugin=plugin, placeholder=p, config_page=config_page)
+        show_reset = configurable and not hasattr(p, "process_config")
+        return render_template("html/config.html", plugin=plugin, placeholder=p, config_page=config_page, show_reset=show_reset)
 
     return "404 Not Found Buddy!", 404
 
