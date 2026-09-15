@@ -161,6 +161,13 @@ index_fetch = fetch.AsyncFetch(INDEX_HOST)
 
 # delay between plugins
 delay = int(config.delay)
+
+if delay >= 3600:
+    delay_value, delay_unit = delay // 3600, "hours"
+elif delay >= 60:
+    delay_value, delay_unit = delay // 60, "minutes"
+else:
+    delay_value, delay_unit = delay, "seconds"
 last_changed = None
 current_plugin = 0
 enabled_plugins = []
@@ -463,7 +470,8 @@ def device_settings(request):
                 load_plugins()
             else:
                 write_config()
-    return render_template("html/settings.html", version=FIRMWARE)
+    return render_template("html/settings.html", version=FIRMWARE,
+                           delay_value=str(delay_value), delay_unit=delay_unit)
 
 
 @server.route("/reboot", methods=["POST"])
@@ -472,7 +480,8 @@ def device_reboot(request):
     if request.method == "POST":
         machine.reset()
 
-    return render_template("html/settings.html", version=FIRMWARE)
+    return render_template("html/settings.html", version=FIRMWARE,
+                           delay_value=str(delay_value), delay_unit=delay_unit)
 
 
 @server.route("/synctime", methods=["POST"])
@@ -499,17 +508,23 @@ def device_brightness(request):
     # bop it, wait no, set it!
     display.set_brightness(config.brightness / 100)
 
-    return render_template("html/settings.html", version=FIRMWARE)
+    return render_template("html/settings.html", version=FIRMWARE,
+                           delay_value=str(delay_value), delay_unit=delay_unit)
+
+
+DELAY_UNITS = {"seconds": 1, "minutes": 60, "hours": 3600}
 
 
 @server.route("/reorder", methods=["POST"])
 def reorder_plugins(request):
-    global delay
+    global delay, delay_value, delay_unit
 
     if request.method == "POST":
-        # only the dwell time, so nothing needs re-importing
-        config.delay = request.form["delay_time"]
-        delay = int(config.delay)
+        delay_value = int(request.form["delay_value"])
+        delay_unit = request.form["delay_unit"]
+
+        delay = delay_value * DELAY_UNITS[delay_unit]
+        config.delay = delay
 
         write_config()
 

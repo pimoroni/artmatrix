@@ -644,6 +644,7 @@ button[aria-busy=true]::after,
 #timing form { display: flex; gap: var(--gap); align-items: center; margin: 0; flex: 1 1 auto; min-width: 0; }
 #installation form > select,
 #timing form > input { flex: 1 1 auto; min-width: 0; margin: 0; }
+#timing form > select { flex: 0 0 auto; width: auto; margin: 0; }
 #installation,
 #timing { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
 #installation > h3,

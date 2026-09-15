@@ -28,9 +28,14 @@
 </section>
 <hr>
 <section id="timing">
-    <h3>Time between plugins (seconds):</h3>
+    <h3>Time between plugins:</h3>
     <form id="plugin-reorder" action="/reorder" method="post">
-        <input type="number" form="plugin-reorder" id="delay_time" name="delay_time" min="5" value={{config.delay}}>
+        <input type="number" form="plugin-reorder" id="delay_value" name="delay_value" value="{{delay_value}}">
+        <select form="plugin-reorder" id="delay_unit" name="delay_unit">
+            <option value="seconds" {{ "selected" if delay_unit == "seconds" else "" }}>seconds</option>
+            <option value="minutes" {{ "selected" if delay_unit == "minutes" else "" }}>minutes</option>
+            <option value="hours" {{ "selected" if delay_unit == "hours" else "" }}>hours</option>
+        </select>
     </form>
     <button type="submit" form="plugin-reorder">Apply</button>
 </section>
