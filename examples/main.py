@@ -680,12 +680,22 @@ def plugins(_request):
 
 
 @server.route("/index.json")
-def networks(_request):
+def serve_index(_request):
     # serve the cached index; refresh_index() keeps it current in the background
+    installed = (enabled_plugins + disabled_plugins)
     try:
         with open(INDEX_CACHE, "r") as file:
-            return file.read(), 200, "application/json"
-    except OSError:
+
+            # load the file
+            index = json.load(file)
+
+            # remove plugins that are currently installed
+            index["plugins"] = [p for p in index["plugins"] if p not in installed]
+
+            # return the filtered json
+            return json.dumps(index), 200, "application/json"
+
+    except (ValueError, OSError):
         # nothing cached yet, tell the page to come back
         return json.dumps({"plugins": [], "pending": True}), 200, "application/json"
 

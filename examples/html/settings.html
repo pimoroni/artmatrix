@@ -16,7 +16,7 @@
     <form id="plugin-select" action="/" method="post">
         <select name="selected-plugin" id="selected-plugin">
         </select>
-        <button type="submit" form="plugin-select">Install</button>
+        <button type="submit" form="plugin-select" id="install-button">Install</button>
     </form>
 </section>
 <hr>
@@ -129,6 +129,9 @@
                 return;
             }
             var list = document.getElementById("selected-plugin");
+            var button = document.getElementById("install-button");
+
+            list.replaceChildren();
             for(let plugin of data.plugins) {
                 var item = document.createElement("option");
                 item.textContent = plugin
@@ -138,6 +141,13 @@
                 item.value = plugin;
                 list.appendChild(item);
             }
+
+            if (data.plugins.length === 0) {
+                var empty = document.createElement("option");
+                empty.textContent = "All plugins installed";
+                list.appendChild(empty);
+            }
+            list.disabled = button.disabled = data.plugins.length === 0;
         });
     }
 
@@ -183,7 +193,7 @@
                         if (!window.confirm(`Delete ${plugin}? This removes its files from the device.`)) return;
                         fetch(`/remove?plugin=${plugin}`, {
                             method: 'POST',
-                        }).then(() => loadPluginList());
+                        }).then(() => { loadPluginList(); loadIndex(); });
                     }
 
                     var enable_toggle = document.createElement("input");
