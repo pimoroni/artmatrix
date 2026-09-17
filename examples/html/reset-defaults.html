@@ -1,0 +1,4 @@
+<form method="post" action="/config?plugin={{ plugin }}" onsubmit="return confirm('Reset {{ plugin }} to its default settings?')">
+  <input type="hidden" name="reset" value="1">
+  <button type="submit" class="warning">Reset to defaults</button>
+</form>
