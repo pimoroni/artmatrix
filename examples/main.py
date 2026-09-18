@@ -377,12 +377,35 @@ def load_plugins():
     if to_add or len(enabled_plugins) + len(disabled_plugins) != len(combined):
         write_config()
 
-    # import enabled plugins. Plugins only run with a network
+    # drop plugins that are no longer running, before importing, so their RAM is
+    # back in time for whatever is being enabled.
     modules = []
+    running = [] if network_failed else enabled_plugins
+
+    for key in list(sys.modules):
+        if key.startswith("/lib/plugins/"):
+            name = key[13:]
+        elif key.startswith("plugins."):
+            name = key.split(".")[1]
+        else:
+            continue
+
+        if name not in running:
+            del sys.modules[key]
+            plugin_state.pop(name, None)
+            plugin_failures.pop(name, None)
+
+    gc.collect()
+
+    # import enabled plugins. Plugins only run with a network
     for plugin in [] if network_failed else list(enabled_plugins):
         try:
             modules.append((plugin, import_plugin(plugin)))
-        except (ImportError, SyntaxError, OSError):
+        except (ImportError, SyntaxError, OSError, MemoryError, ValueError):
+
+            # claw back some memory, especially if the error was memory related.
+            gc.collect()
+
             # a bad or partial install, disabled so the settings page says so
             print(f"plugin {plugin} failed to import, disabling it:")
             enabled_plugins.remove(plugin)
