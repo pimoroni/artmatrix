@@ -676,3 +676,53 @@ output {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+.usage {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 0 var(--gap);
+  margin-bottom: var(--pad);
+}
+
+.usage-name { font-size: 0.875rem; color: var(--ink-dim); }
+
+.usage-bar {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+  height: 0.5rem;
+  border-radius: var(--radius);
+  background: var(--lift);
+  overflow: hidden;
+}
+
+.usage-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--speed);
+}
+
+.usage-legend {
+  display: flex;
+  gap: var(--pad);
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 0.875rem;
+}
+
+.usage-legend span {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.usage-legend span::before {
+  content: "";
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 2px;
+}
+
+.usage-legend .used::before { background: var(--accent); }
+.usage-legend .free::before { background: var(--lift); }

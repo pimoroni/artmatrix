@@ -699,6 +699,27 @@ def configure_plugin(request):
     return "404 Not Found Buddy!", 404
 
 
+@server.route("/usage.json")
+def usage(_request):
+    # statvfs reports fragment size, total fragments and free fragments
+    frsize, blocks, bfree = os.statvfs("/")[1:4]
+
+    # collect first or the free figure counts garbage that isn't really in use
+    gc.collect()
+    j = {"flash_total": frsize * blocks, "flash_free": frsize * bfree,
+         "mem_total": gc.mem_alloc() + gc.mem_free(), "mem_free": gc.mem_free()}
+
+    if sd_present:
+        try:
+            frsize, blocks, bfree = os.statvfs("/sd")[1:4]
+            j["sd_total"] = frsize * blocks
+            j["sd_free"] = frsize * bfree
+        except OSError:
+            pass
+
+    return json.dumps(j), 200, "application/json"
+
+
 @server.route("/plugins.json")
 def plugins(_request):
     j = {"enabled": config.enabled_plugins, "disabled": config.disabled_plugins}

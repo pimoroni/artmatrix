@@ -70,6 +70,29 @@
     </div>
     <hr>
     <div>
+      <label>Memory</label>
+      <div class="usage">
+        <span class="usage-name">Flash</span>
+        <output class="usage-figures" id="flash_figures">…</output>
+        <div class="usage-bar"><span id="flash_bar"></span></div>
+      </div>
+      <div class="usage">
+        <span class="usage-name">RAM</span>
+        <output class="usage-figures" id="mem_figures">…</output>
+        <div class="usage-bar"><span id="mem_bar"></span></div>
+      </div>
+      <div class="usage" id="sd_row" hidden>
+        <span class="usage-name">SD Card</span>
+        <output class="usage-figures" id="sd_figures">…</output>
+        <div class="usage-bar"><span id="sd_bar"></span></div>
+      </div>
+      <p class="usage-legend">
+        <span class="used">Used</span>
+        <span class="free">Free</span>
+      </p>
+    </div>
+    <hr>
+    <div>
       <label>Reboot</label>
       <small>Restarts the Art Matrix. Your settings are kept.</small>
       <form id="reboot-art-matrix" action="/reboot" method="post"
@@ -114,6 +137,39 @@
         .catch(() => { status.textContent = "Time sync failed"; })
         .finally(() => { sync.disabled = false; });
     });
+
+    fetch("/usage.json")
+      .then((response) => response.json())
+      .then((data) => {
+        // a whole number of MB hides the difference between 12.8 and 13.0, which
+        // is the whole point of the figure on a device this size
+        const size = (bytes) => {
+          const kb = bytes / 1024;
+          if (kb < 1024) return `${Math.round(kb)} KB`;
+          const mb = kb / 1024;
+          return mb < 1024 ? `${mb.toFixed(1)} MB` : `${(mb / 1024).toFixed(1)} GB`;
+        };
+
+        const rows = [["flash", data.flash_total, data.flash_free],
+                      ["mem", data.mem_total, data.mem_free]];
+
+        if (data.sd_total) {
+          rows.push(["sd", data.sd_total, data.sd_free]);
+          document.getElementById("sd_row").hidden = false;
+        }
+
+        for (const [name, total, free] of rows) {
+          document.getElementById(`${name}_figures`).textContent =
+            `${size(free)} free of ${size(total)}`;
+          document.getElementById(`${name}_bar`).style.width =
+            `${(100 * (total - free)) / total}%`;
+        }
+      })
+      .catch(() => {
+        for (const name of ["flash", "mem"]) {
+          document.getElementById(`${name}_figures`).textContent = "Unavailable";
+        }
+      });
   })();
 </script>
 
