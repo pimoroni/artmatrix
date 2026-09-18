@@ -56,6 +56,9 @@ del splash
 del sys.modules["splash"]
 gc.collect()
 
+# Override phew setting a low threshold.
+gc.threshold(1024 * 1024)
+
 # Keep the request log on the console only. Writing it takes the multicore
 # lockout, so a per-request flash append stalls both cores and wears flash for
 # every asset fetch.
