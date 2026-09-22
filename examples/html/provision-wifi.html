@@ -26,7 +26,8 @@
       <h2>Enter a name for your device</h2>
       <fieldset>
         <input id="wifi_hostname" name="wifi_hostname" type="text" value="{{config.wifi_hostname}}"
-          placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
+          placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
+          required />
       </fieldset>
 
       <br>
@@ -74,7 +75,7 @@
       <fieldset>
         <input id="wifi_password" name="wifi_password" type="text" value="{{config.wifi_password}}"
           placeholder="e.g. Cats4lyfe&lt;3!" autocapitalize="none" autocorrect="off" autocomplete="off"
-          spellcheck="false" />
+          spellcheck="false" required />
       </fieldset>
     </form>
 
@@ -151,6 +152,10 @@
       document.getElementById("main").onsubmit = async (event) => {
         // must happen before any await, or the form submits out from under us
         event.preventDefault()
+        if (!document.getElementById("wifi_ssid").value) {
+          setStatus("Pick your WiFi network from the list above.", true)
+          return
+        }
         const data = new FormData(event.target)
         console.log(...data)
         setTesting(true)

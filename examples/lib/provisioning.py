@@ -98,13 +98,17 @@ leds(color.rgb(160, 0, 255))
 @server.route("/provision-welcome", methods=["GET", "POST"])
 def provision_welcome(request):
     if request.method == "POST":
-        config.wifi_ssid = request.form["wifi_ssid"]
-        config.wifi_password = request.form["wifi_password"]
-        config.wifi_hostname = request.form["wifi_hostname"]
-        config.provisioned = True
-        write_config()
-        leds.clear()
-        machine.reset()
+        ssid = request.form.get("wifi_ssid", "")
+        password = request.form.get("wifi_password", "")
+        hostname = request.form.get("wifi_hostname", "")
+        if ssid and password and hostname:
+            config.wifi_ssid = ssid
+            config.wifi_password = password
+            config.wifi_hostname = hostname
+            config.provisioned = True
+            write_config()
+            leds.clear()
+            machine.reset()
     return render_template("html/provision-wifi.html")
 
 
