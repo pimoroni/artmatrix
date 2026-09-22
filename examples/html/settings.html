@@ -312,6 +312,12 @@
         });
     }
 
+    document.getElementById("plugin-select").addEventListener("submit", () => {
+        var button = document.getElementById("install-button");
+        button.textContent = "Installing...";
+        button.disabled = true;
+    });
+
     loadIndex();
     loadPluginList();
 </script>

@@ -25,7 +25,6 @@ try:
     spi = machine.SPI(0, baudrate=1_000_000, polarity=0, phase=0, sck=Pin.board.SD_SCLK, mosi=Pin.board.SD_CMD, miso=Pin.board.SD_SD0)
     sd = sdcard.SDCard(spi, Pin(Pin.board.SD_CS, Pin.OUT, value=1))
     os.mount(sd, "/sd")
-    print(os.listdir("/sd"))
     sd_present = True
 except OSError:
     pass
@@ -99,7 +98,6 @@ def apply_state(surface, state):
 ###
 # Provisioning
 ###
-
 
 loop = asyncio.get_event_loop()
 
@@ -496,6 +494,9 @@ def device_settings(request):
                 load_plugins()
             else:
                 write_config()
+
+        return redirect("/", status=303)
+
     return render_template("html/settings.html", version=FIRMWARE,
                            delay_value=str(delay_value), delay_unit=delay_unit)
 
