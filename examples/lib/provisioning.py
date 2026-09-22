@@ -3,7 +3,6 @@ import json
 import time
 import machine
 from phew import logging, server, redirect, serve_file, render_template, access_point
-import qrcode
 import network
 
 wlan = None
@@ -13,8 +12,6 @@ wlan = None
 logging.log_file = None
 
 screen.font = rom_font.nope
-
-code = qrcode.QRCode()
 
 DOMAIN = "artmatrix.wireless"
 ssid = "Art Matrix Setup"
@@ -80,28 +77,17 @@ def write_config():
 import config   # noqa E402
 
 
-def measure_qr_code(size, code):
-    w, h = code.get_size()
-    module_size = int(size / w)
-    return module_size * w, module_size
-
-
-def draw_qr_code(ox, oy, size, code):
-    size, module_size = measure_qr_code(size, code)
-    ox = (screen.width / 2) - (size / 2)
-    screen.pen = color.rgb(0, 0, 0)
-    screen.rectangle(ox, oy, size, size)
-    screen.pen = color.white
-    for x in range(size):
-        for y in range(size):
-            if code.get_module(x, y):
-                screen.rectangle(ox + x * module_size, oy + y * module_size, module_size, module_size)
-
-
 screen.pen = color.rgb(0, 0, 0, 75)
 screen.clear()
-code.set_text(qr_payload)
-draw_qr_code(0, 11, 100, code)
+
+# qr() draws dark on light, so swap the palette to suit this splash.
+qr = image.qr(qr_payload, image.QR_MEDIUM, 0)
+qr.palette = [color.rgb(0, 0, 0), color.white]
+qr_size = qr.width * 3
+qr_x = (screen.width - qr_size) // 2
+screen.pen = color.rgb(0, 0, 0)
+screen.rectangle(qr_x - 4, 4, qr_size + 8, qr_size + 8)
+screen.blit(qr, rect(qr_x, 8, qr_size, qr_size))
 screen.pen = color.white
 screen.text("Connect to:", 5, screen.height - 29)
 screen.text(f"{ssid}", 5, screen.height - 16)

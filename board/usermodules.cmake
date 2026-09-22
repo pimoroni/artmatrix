@@ -22,6 +22,8 @@ set(CMAKE_CXX_STANDARD 17)
 # PicoVector & MicroPython bindings
 # Single-core rasterisation on ArtMatrix (PV_DUAL_CORE is off by default).
 set(PV_DUAL_CORE OFF)
+# Turn pico 3d off
+set(PV_PICO3D OFF)
 find_package(PICOVECTOR_MICROPYTHON CONFIG REQUIRED)
 
 # Build picovector for Pico
@@ -40,8 +42,6 @@ include(plasma/micropython)
 
 # LEDs & Matrices
 include(modules/c/artmatrix/micropython)
-
-include(qrcode/micropython/micropython)
 
 # Still required for version.py
 include(modules_py/modules_py)
