@@ -176,6 +176,16 @@
 </script>
 
 <script>
+    // Display names come from the index. Without one, the directory name is used instead
+    var plugin_names = {};
+
+    function displayName(plugin) {
+        return plugin_names[plugin] || plugin
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
+
     // The index is fetched in the background on the device, so a cold boot can
     // answer "pending" before the first refresh lands.
     function loadIndex(attempt = 0) {
@@ -186,26 +196,31 @@
                 if (attempt < 10) setTimeout(() => loadIndex(attempt + 1), 2000);
                 return;
             }
-            var list = document.getElementById("selected-plugin");
-            var button = document.getElementById("install-button");
+            plugin_names = data.plugins || {};
 
-            list.replaceChildren();
-            for(let plugin of data.plugins) {
-                var item = document.createElement("option");
-                item.textContent = plugin
-                .split('_')
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ');
-                item.value = plugin;
-                list.appendChild(item);
-            }
+            // the catalogue arrives whole, so the installed ones are dropped here
+            return loadPluginList().then((installed) => {
+                var list = document.getElementById("selected-plugin");
+                var button = document.getElementById("install-button");
+                var available = Object.keys(plugin_names)
+                    .filter((plugin) => !installed.includes(plugin))
+                    .sort();
 
-            if (data.plugins.length === 0) {
-                var empty = document.createElement("option");
-                empty.textContent = "All plugins installed";
-                list.appendChild(empty);
-            }
-            list.disabled = button.disabled = data.plugins.length === 0;
+                list.replaceChildren();
+                for(let plugin of available) {
+                    var item = document.createElement("option");
+                    item.textContent = displayName(plugin);
+                    item.value = plugin;
+                    list.appendChild(item);
+                }
+
+                if (available.length === 0) {
+                    var empty = document.createElement("option");
+                    empty.textContent = "All plugins installed";
+                    list.appendChild(empty);
+                }
+                list.disabled = button.disabled = available.length === 0;
+            });
         });
     }
 
@@ -248,7 +263,7 @@
                     remove_link.className = "icon delete";
                     remove_link.title = "Delete";
                     remove_link.onclick = function() {
-                        if (!window.confirm(`Delete ${plugin}? This removes its files from the device.`)) return;
+                        if (!window.confirm(`Delete ${displayName(plugin)}? This removes its files from the device.`)) return;
                         fetch(`/remove?plugin=${plugin}`, {
                             method: 'POST',
                         }).then(() => { loadPluginList(); loadIndex(); });
@@ -274,7 +289,7 @@
 
                         var text_span = document.createElement("span");
                         text_span.className = "plugin-text";
-                        text_span.textContent = `${plugin}`.replace(/(^|_)[a-z]/g, (a) => {return (a[1] ? ' ' + a[1] : a[0]).toUpperCase();});
+                        text_span.textContent = displayName(plugin);
                         item.appendChild(text_span);
                         
                         if (key == "enabled"){
@@ -293,6 +308,7 @@
                     }
                 }
             }
+            return data.enabled.concat(data.disabled);
         });
     }
 
