@@ -49,21 +49,6 @@
 <section id="reboot">
     <h3>System:</h3>
     <div>
-      <label>Clock</label>
-      <small>Sync the clock with an internet time server.</small>
-      <div>
-        <button type="button" id="sync_time">Sync Time</button>
-        <output for="sync_time" id="sync_time_status"></output>
-      </div>
-    </div>
-    <hr>
-    <div>
-      <label>Firmware</label>
-      <small>{{version}}</small>
-      <small><a href="https://github.com/pimoroni/artmatrix/releases" target="_blank" rel="noopener">Latest releases on GitHub</a></small>
-    </div>
-    <hr>
-    <div>
       <label>Memory</label>
       <div class="usage">
         <span class="usage-name">Flash</span>
@@ -87,8 +72,21 @@
     </div>
     <hr>
     <div>
-      <label>Reboot</label>
-      <small>Restarts the Art Matrix. Your settings are kept.</small>
+      <label>Clock</label>
+      <small>Sync the clock with an internet time server.</small>
+      <div>
+        <button type="button" id="sync_time">Sync Time</button>
+        <output for="sync_time" id="sync_time_status"></output>
+      </div>
+    </div>
+    <hr>
+    <div>
+      <label>Firmware</label>
+      <small>{{version}}</small>
+      <small><a href="https://github.com/pimoroni/artmatrix/releases" target="_blank" rel="noopener">Latest releases on GitHub</a></small>
+    </div>
+    <hr>
+    <div>
       <form id="reboot-art-matrix" action="/reboot" method="post"
             onsubmit="return window.confirm('Reboot the Art Matrix?');">
           <input type="hidden" name="confirm" value="1">
