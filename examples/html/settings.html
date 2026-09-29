@@ -13,6 +13,16 @@
 </header>
 
 <hr>
+<section id="display">
+    <h3>Display brightness:</h3>
+    <div class="presets" id="brightness" data-value="{{config.brightness}}">
+        <button type="button" value="0">Off</button>
+        <button type="button" value="30">Low</button>
+        <button type="button" value="60">Medium</button>
+        <button type="button" value="100">Full</button>
+    </div>
+</section>
+<hr>
 <section id="ordering">
     <h3>Order Plugins:</h3>
     <ul id="all_plugins">
@@ -27,26 +37,13 @@
 <section id="timing">
     <h3>Time between plugins:</h3>
     <form id="plugin-reorder" action="/reorder" method="post">
-        <input type="number" form="plugin-reorder" id="delay_value" name="delay_value" value="{{delay_value}}">
+        <input type="number" form="plugin-reorder" id="delay_value" name="delay_value" min="1" value="{{delay_value}}">
         <select form="plugin-reorder" id="delay_unit" name="delay_unit">
             <option value="seconds" {{ "selected" if delay_unit == "seconds" else "" }}>seconds</option>
             <option value="minutes" {{ "selected" if delay_unit == "minutes" else "" }}>minutes</option>
             <option value="hours" {{ "selected" if delay_unit == "hours" else "" }}>hours</option>
         </select>
     </form>
-    <button type="submit" form="plugin-reorder">Apply</button>
-</section>
-<hr>
-<section id="display">
-    <h3>Display:</h3>
-    <label>Global brightness
-      <small>Applies to every plugin. Takes effect straight away.</small>
-      <div>
-        <input type="range" id="brightness" name="brightness"
-               min="5" max="100" step="1" value="{{config.brightness}}">
-        <output for="brightness" id="brightness_value">{{config.brightness}}</output>
-      </div>
-    </label>
 </section>
 <hr>
 <section id="reboot">
@@ -104,16 +101,42 @@
 
 <script>
   (() => {
-    const slider  = document.getElementById("brightness");
-    const readout = document.getElementById("brightness_value");
+    const presets = document.getElementById("brightness");
+    const choices = Array.from(presets.querySelectorAll("button"));
+    const choose  = (button) => {
+      for (const choice of choices) choice.setAttribute("aria-pressed", choice === button);
+    };
 
-    slider.addEventListener("input", () => {
-      readout.textContent = slider.value;
-    });
+    // a value saved by the old slider lights whichever preset is nearest
+    const saved = Number(presets.dataset.value);
+    choose(choices.reduce((best, choice) =>
+      Math.abs(choice.value - saved) < Math.abs(best.value - saved) ? choice : best));
 
-    slider.addEventListener("change", () => {
-      fetch(`/brightness?value=${slider.value}`, { method: "POST" })
+    for (const choice of choices) {
+      choice.addEventListener("click", () => {
+        choose(choice);
+        fetch(`/brightness?value=${choice.value}`, { method: "POST" })
+          .catch(() => {});
+      });
+    }
+
+    const timing  = document.getElementById("plugin-reorder");
+    const delay   = document.getElementById("delay_value");
+
+    // /reorder trusts the number, so an empty box or a 0 never leaves the page
+    const saveDelay = () => {
+      if (!timing.reportValidity()) return;
+      fetch("/reorder", { method: "POST", body: new URLSearchParams(new FormData(timing)) })
         .catch(() => {});
+    };
+
+    delay.addEventListener("change", saveDelay);
+    document.getElementById("delay_unit").addEventListener("change", saveDelay);
+
+    // Enter would submit and reload the page, leaving the box sends the change instead
+    timing.addEventListener("submit", (event) => {
+      event.preventDefault();
+      delay.blur();
     });
 
     const sync    = document.getElementById("sync_time");

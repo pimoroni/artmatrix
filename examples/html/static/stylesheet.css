@@ -938,6 +938,33 @@ a.button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2
 
 .install-bar output strong { color: var(--ink); font-weight: 500; }
 
+.presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.presets > button {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  background: transparent;
+  border-color: var(--edge);
+  color: var(--ink-dim);
+}
+
+.presets > button:hover {
+  background: transparent;
+  border-color: var(--accent-ink);
+  color: var(--ink);
+}
+
+.presets > button[aria-pressed=true] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 @media (max-width: 22.5rem) {
   .plugin-grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
   .install-bar { margin: 0 -0.75rem; padding-left: 0.75rem; padding-right: 0.75rem; }

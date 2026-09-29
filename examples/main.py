@@ -562,7 +562,8 @@ def reorder_plugins(request):
 
         write_config()
 
-    return redirect("/")
+    # the settings page saves this in the background, it has nothing to show
+    return "", 204
 
 
 @server.route("/position", methods=["POST"])
