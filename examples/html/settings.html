@@ -178,6 +178,7 @@
 <script>
     // Display names come from the index. Without one, the directory name is used instead
     var plugin_names = {};
+    var dragging;
 
     function displayName(plugin) {
         return plugin_names[plugin] || plugin
@@ -231,84 +232,103 @@
         .then((response) => response.json())
         .then((data) => {
             document.getElementById("all_plugins").replaceChildren();
-            for (const key of Object.keys(data)) {
-                for (const plugin of data[key]) {
+            for (const plugin of data.plugins) {
+                var enabled = !data.disabled.includes(plugin);
 
-                    var config_link = document.createElement("button");
-                    config_link.className = "icon settings";
-                    config_link.title = "Configure";
-                    config_link.onclick = function() {
-                        window.location.href = `/config?plugin=${plugin}`;
-                    }
-                    
-                    var move_pos_up = document.createElement("button");
-                    move_pos_up.className = "icon arrow-up";
-                    move_pos_up.title = "Move up";
-                    move_pos_up.onclick = function() {
-                        fetch(`/position?plugin=${plugin}&action=up`, {
-                            method: 'POST',
-                        }).then(() => loadPluginList());
-                    }
-                    
-                    var move_pos_down = document.createElement("button");
-                    move_pos_down.className = "icon arrow-down";
-                    move_pos_down.title = "Move down";
-                    move_pos_down.onclick = function() {
-                        fetch(`/position?plugin=${plugin}&action=down`, {
-                            method: 'POST',
-                        }).then(() => loadPluginList());
-                    }
+                var config_link = document.createElement("button");
+                config_link.className = "icon settings";
+                config_link.title = "Configure";
+                config_link.onclick = function() {
+                    window.location.href = `/config?plugin=${plugin}`;
+                }
 
-                    var remove_link = document.createElement("button");
-                    remove_link.className = "icon delete";
-                    remove_link.title = "Delete";
-                    remove_link.onclick = function() {
-                        if (!window.confirm(`Delete ${displayName(plugin)}? This removes its files from the device.`)) return;
-                        fetch(`/remove?plugin=${plugin}`, {
-                            method: 'POST',
-                        }).then(() => { loadPluginList(); loadIndex(); });
-                    }
+                var remove_link = document.createElement("button");
+                remove_link.className = "icon delete";
+                remove_link.title = "Delete";
+                remove_link.onclick = function() {
+                    if (!window.confirm(`Delete ${displayName(plugin)}? This removes its files from the device.`)) return;
+                    fetch(`/remove?plugin=${plugin}`, {
+                        method: 'POST',
+                    }).then(() => { loadPluginList(); loadIndex(); });
+                }
 
-                    var enable_toggle = document.createElement("input");
-                    enable_toggle.type = "checkbox";
-                    enable_toggle.role = "switch";
-                    enable_toggle.id = `${plugin}_checkbox`;
+                var enable_toggle = document.createElement("input");
+                enable_toggle.type = "checkbox";
+                enable_toggle.role = "switch";
+                enable_toggle.id = `${plugin}_checkbox`;
+                enable_toggle.checked = enabled;
 
-                    enable_toggle.addEventListener("click", function() {
-                        console.log(this.id);
-                        fetch(`/active?plugin=${plugin}&state=${this.checked}`, {
+                enable_toggle.addEventListener("click", function() {
+                    fetch(`/active?plugin=${plugin}&state=${this.checked}`, {
+                        method: 'POST',
+                    })
+                    .then((response) => {
+                        if (response.ok) {
+                            this.closest("li").className = this.checked ? "enabled" : "disabled";
+                        } else {
+                            this.checked = !this.checked;
+                        }
+                    });
+                });
+
+                if (plugin) {
+                    var item = document.createElement("li");
+                    var list = document.getElementById("all_plugins");
+                    item.id = plugin;
+
+                    var text_span = document.createElement("span");
+                    text_span.className = "plugin-text";
+                    text_span.textContent = displayName(plugin);
+                    item.appendChild(text_span);
+
+                    var drag_handle = document.createElement("span");
+                    drag_handle.className = "drag-handle";
+                    drag_handle.title = "Drag to reorder";
+                    item.prepend(drag_handle);
+
+                    item.draggable = true;
+                    item.addEventListener("dragstart", function(e) {
+                        dragging = this;
+                        e.dataTransfer.setData("text/plain", plugin);
+                    });
+                    item.addEventListener("dragover", function(e) {
+                        e.preventDefault();
+                        var rows = Array.from(list.querySelectorAll("li"));
+                        var from = rows.indexOf(dragging);
+                        var to = rows.indexOf(this);
+                        this.classList.toggle("drop-above", from > to);
+                        this.classList.toggle("drop-below", from < to);
+                    });
+                    item.addEventListener("dragleave", function() {
+                        this.classList.remove("drop-above", "drop-below");
+                    });
+                    item.addEventListener("drop", function(e) {
+                        e.preventDefault();
+                        this.classList.remove("drop-above", "drop-below");
+                        var rows = Array.from(list.querySelectorAll("li"));
+                        var pos = rows.indexOf(this);
+
+                        // move the row now, the device's list is only fetched back if it refuses
+                        if (rows.indexOf(dragging) > pos) this.before(dragging);
+                        else this.after(dragging);
+
+                        fetch(`/position?plugin=${e.dataTransfer.getData("text/plain")}&pos=${pos}`, {
                             method: 'POST',
                         })
-                        .then(() => loadPluginList());
+                        .then((response) => { if (!response.ok) loadPluginList(); })
+                        .catch(() => loadPluginList());
                     });
 
-                    if (plugin) {
-                        var item = document.createElement("li");
-                        var list = document.getElementById("all_plugins");
-                        item.id = plugin;
+                    item.appendChild(config_link);
 
-                        var text_span = document.createElement("span");
-                        text_span.className = "plugin-text";
-                        text_span.textContent = displayName(plugin);
-                        item.appendChild(text_span);
-                        
-                        if (key == "enabled"){
-                            item.appendChild(move_pos_up);
-                            item.appendChild(move_pos_down);
-                            enable_toggle.checked = "checked";
-                        }
+                    item.appendChild(enable_toggle);
+                    item.className = enabled ? "enabled" : "disabled";
+                    list.appendChild(item);
 
-                        item.appendChild(config_link);
-
-                        item.appendChild(enable_toggle);
-                        item.className = key;
-                        list.appendChild(item);
-
-                        item.appendChild(remove_link);
-                    }
+                    item.appendChild(remove_link);
                 }
             }
-            return data.enabled.concat(data.disabled);
+            return data.plugins;
         });
     }
 

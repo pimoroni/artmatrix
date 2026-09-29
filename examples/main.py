@@ -172,7 +172,6 @@ else:
 last_changed = None
 current_plugin = 0
 enabled_plugins = []
-disabled_plugins = []
 modules = []
 
 # global brightness and setting
@@ -350,29 +349,26 @@ def save_config():
 
 
 def load_plugins():
-    global enabled_plugins, disabled_plugins, modules, current_plugin, delay
+    global enabled_plugins, modules, current_plugin, delay
 
-    enabled_plugins = config.enabled_plugins
-    disabled_plugins = config.disabled_plugins
     delay = int(config.delay)
 
     plugins_on_disk = os.listdir("/lib/plugins")
-    combined = enabled_plugins + disabled_plugins
+    known = len(config.plugins) + len(config.disabled_plugins)
 
     # remove plugins that no longer exist on disk
-    enabled_plugins = [p for p in enabled_plugins if p in plugins_on_disk]
-    disabled_plugins = [p for p in disabled_plugins if p in plugins_on_disk]
+    config.plugins = [p for p in config.plugins if p in plugins_on_disk]
+    config.disabled_plugins = [p for p in config.disabled_plugins if p in plugins_on_disk]
 
-    # add plugins that have been added to the disk
-    to_add = list(set(plugins_on_disk) - set(combined))
-    disabled_plugins += to_add
+    # add plugins that have been added to the disk, switched off
+    to_add = [p for p in plugins_on_disk if p not in config.plugins]
+    config.plugins += to_add
+    config.disabled_plugins += to_add
 
-    # save back to config
-    config.enabled_plugins = enabled_plugins
-    config.disabled_plugins = sorted(disabled_plugins)
+    enabled_plugins = [p for p in config.plugins if p not in config.disabled_plugins]
 
     # and write them out if changes have been made to either remove or add
-    if to_add or len(enabled_plugins) + len(disabled_plugins) != len(combined):
+    if to_add or len(config.plugins) + len(config.disabled_plugins) != known:
         write_config()
 
     # drop plugins that are no longer running, before importing, so their RAM is
@@ -407,8 +403,7 @@ def load_plugins():
             # a bad or partial install, disabled so the settings page says so
             print(f"plugin {plugin} failed to import, disabling it:")
             enabled_plugins.remove(plugin)
-            disabled_plugins.append(plugin)
-            config.disabled_plugins = sorted(disabled_plugins)
+            config.disabled_plugins.append(plugin)
             write_config()
 
     # reset the current to zero, start from the beginning.
@@ -560,26 +555,29 @@ def reorder_plugins(request):
 
 @server.route("/position", methods=["POST"])
 def position(request):
+    global enabled_plugins
 
     plugin_name = request.query.get("plugin")
     move_action = request.query.get("action")
 
-    current_pos = enabled_plugins.index(plugin_name)
+    current_pos = config.plugins.index(plugin_name)
 
-    if move_action == "up":
+    if "pos" in request.query:
+        new_pos = int(request.query["pos"])
+    elif move_action == "up":
         new_pos = current_pos - 1
     else:
         new_pos = current_pos + 1
 
     if new_pos < 0:
         new_pos = 0
-    elif new_pos >= len(enabled_plugins):
-        new_pos = len(enabled_plugins) - 1
+    elif new_pos >= len(config.plugins):
+        new_pos = len(config.plugins) - 1
 
-    enabled_plugins.remove(plugin_name)
-    enabled_plugins.insert(new_pos, plugin_name)
+    config.plugins.remove(plugin_name)
+    config.plugins.insert(new_pos, plugin_name)
 
-    config.enabled_plugins = enabled_plugins
+    enabled_plugins = [p for p in config.plugins if p not in config.disabled_plugins]
     write_config()
 
     # the set is unchanged, so permute what's already imported and stay on the
@@ -596,25 +594,23 @@ def set_active_state(request):
     plugin_state = request.query.get("state")
 
     if plugin_state == "false":
-        if plugin_name in enabled_plugins:
-            enabled_plugins.remove(plugin_name)
-            disabled_plugins.append(plugin_name)
-    else:
-        if plugin_name in disabled_plugins:
-            disabled_plugins.remove(plugin_name)
-            enabled_plugins.append(plugin_name)
+        if plugin_name not in config.disabled_plugins:
+            config.disabled_plugins.append(plugin_name)
+    elif plugin_name in config.disabled_plugins:
+        config.disabled_plugins.remove(plugin_name)
 
-    config.enabled_plugins = enabled_plugins
-    config.disabled_plugins = disabled_plugins
     try:
         load_plugins()
     except MemoryError:
         gc.collect()
-        enabled_plugins.remove(plugin_name)
-        disabled_plugins.append(plugin_name)
+        config.disabled_plugins.append(plugin_name)
         load_plugins()
         return "Not enough memory to enable this plugin", 507
     write_config()
+
+    # a failed import is disabled again inside load_plugins()
+    if plugin_state != "false" and plugin_name in config.disabled_plugins:
+        return "This plugin failed to start", 500
 
     return "OK", 200
 
@@ -627,15 +623,14 @@ def remove_plugin(request):
 
     # check if the plugin is in one of the lists
     # prevents a manually written POST req removing something it shouldn't
-    if plugin_name in (config.enabled_plugins + config.disabled_plugins):
+    if plugin_name in config.plugins:
         directory = f"lib/plugins/{plugin_name}/"
 
         # remove the plugin directory
         rmtree(directory)
 
-        # remove the entries from the enabled/disaabled lists
-        if plugin_name in config.enabled_plugins:
-            config.enabled_plugins.remove(plugin_name)
+        # remove the entries from the plugin and disabled lists
+        config.plugins.remove(plugin_name)
         if plugin_name in config.disabled_plugins:
             config.disabled_plugins.remove(plugin_name)
 
@@ -653,7 +648,7 @@ def configure_plugin(request):
 
     plugin = request.query["plugin"]
 
-    if plugin in (config.enabled_plugins + config.disabled_plugins):
+    if plugin in config.plugins:
         p = __import__(f"/lib/plugins/{plugin}")
 
         # Plugins without a settings page fall back to a default
@@ -723,7 +718,7 @@ def usage(_request):
 
 @server.route("/plugins.json")
 def plugins(_request):
-    j = {"enabled": config.enabled_plugins, "disabled": config.disabled_plugins}
+    j = {"plugins": config.plugins, "disabled": config.disabled_plugins}
     return json.dumps(j), 200, "application/json"
 
 

@@ -14,10 +14,10 @@ wifi_country = "GB"
 # Time to display each plugin before changing
 delay = 10
 
-# Plugins that are set to be shown, including the order.
-enabled_plugins = []
+# Installed plugins, in the order they're listed and shown.
+plugins = []
 
-# Plugins that are installed but are not to be shown
+# The installed plugins that are switched off
 disabled_plugins = []
 
 # global brightness
