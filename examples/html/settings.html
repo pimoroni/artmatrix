@@ -13,20 +13,15 @@
 </header>
 
 <hr>
-<section id="installation">
-    <h3>Install Plugins:</h3>
-    <form id="plugin-select" action="/" method="post">
-        <select name="selected-plugin" id="selected-plugin">
-        </select>
-        <button type="submit" form="plugin-select" id="install-button">Install</button>
-    </form>
-</section>
-<hr>
 <section id="ordering">
     <h3>Order Plugins:</h3>
     <ul id="all_plugins">
     </ul>
 
+</section>
+<section id="installation">
+    <a class="button" href="/install">Discover more plugins</a>
+    <p class="warning" id="install-error" hidden></p>
 </section>
 <hr>
 <section id="timing">
@@ -198,30 +193,7 @@
                 return;
             }
             plugin_names = data.plugins || {};
-
-            // the catalogue arrives whole, so the installed ones are dropped here
-            return loadPluginList().then((installed) => {
-                var list = document.getElementById("selected-plugin");
-                var button = document.getElementById("install-button");
-                var available = Object.keys(plugin_names)
-                    .filter((plugin) => !installed.includes(plugin))
-                    .sort();
-
-                list.replaceChildren();
-                for(let plugin of available) {
-                    var item = document.createElement("option");
-                    item.textContent = displayName(plugin);
-                    item.value = plugin;
-                    list.appendChild(item);
-                }
-
-                if (available.length === 0) {
-                    var empty = document.createElement("option");
-                    empty.textContent = "All plugins installed";
-                    list.appendChild(empty);
-                }
-                list.disabled = button.disabled = available.length === 0;
-            });
+            return loadPluginList();
         });
     }
 
@@ -332,12 +304,30 @@
         });
     }
 
-    document.getElementById("plugin-select").addEventListener("submit", () => {
-        var button = document.getElementById("install-button");
-        button.textContent = "Installing...";
-        button.disabled = true;
-    });
+    // The install runs in the background on the device. A finished result is only
+    // served once, so the poll stops as soon as it sees one.
+    function watchInstall() {
+        fetch("/install.json")
+        .then((response) => response.json())
+        .then((state) => {
+            var warning = document.getElementById("install-error");
+
+            if (!state.plugin) return;
+
+            if (!state.finished) {
+                warning.hidden = true;
+                setTimeout(watchInstall, 1000);
+                return;
+            }
+
+            warning.textContent = state.error ? `${displayName(state.plugin)}: ${state.error}` : "";
+            warning.hidden = !state.error;
+            loadIndex();
+        })
+        .catch(() => setTimeout(watchInstall, 2000));
+    }
 
     loadIndex();
     loadPluginList();
+    watchInstall();
 </script>

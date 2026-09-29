@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import errno
 import gc
 import json
 import math
@@ -9,7 +10,6 @@ import time
 
 import fetch
 import machine
-import mip
 import ntptime
 import sdcard
 import splash
@@ -149,9 +149,14 @@ network_failed = False
 
 # Location of plugin index
 INDEX_HOST = "raw.githubusercontent.com"
-INDEX_PATH = "/pimoroni/artmatrix-plugins/refs/heads/main/index.json"
+INDEX_BASE = "/pimoroni/artmatrix-plugins/refs/heads/main"
+INDEX_PATH = f"{INDEX_BASE}/index.json"
 INDEX_CACHE = "/index-cache.json"
 INDEX_INTERVAL = 15 * 60
+
+# The install page's browser fetches thumbnails from the index host itself, as
+# plugins that aren't installed have none on the device.
+THUMBNAIL_BASE = f"https://{INDEX_HOST}{INDEX_BASE}"
 
 FIRMWARE = version.BUILD or version.DATE
 
@@ -159,6 +164,8 @@ FIRMWARE = version.BUILD or version.DATE
 # requests.get() here froze the display and every other connection for the whole
 # TLS round trip, on every settings page load.
 index_fetch = fetch.AsyncFetch(INDEX_HOST)
+INSTALL_DIR = "/.install"
+install_state = None
 
 # delay between plugins
 delay = int(config.delay)
@@ -471,29 +478,34 @@ def wrong_host_redirect(_request):
     return f"<!DOCTYPE html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://{DOMAIN}/'\" /></head>"
 
 
-@server.route("/", methods=["GET", "POST"])
-def device_settings(request):
-    if request.method == "POST":
-        plugin = request.form["selected-plugin"]
-        install_url = f"github:pimoroni/artmatrix-plugins/{plugin}"
-        mip.install(install_url)
-
-        # add the newly installed plugin to the enabled list and save it.
-        if plugin not in config.enabled_plugins:
-            config.enabled_plugins.append(plugin)
-            try:
-                load_plugins()
-            except MemoryError:
-                gc.collect()
-                config.enabled_plugins.remove(plugin)
-                load_plugins()
-            else:
-                write_config()
-
-        return redirect("/", status=303)
-
+@server.route("/", methods=["GET"])
+def device_settings(_request):
     return render_template("html/settings.html", version=FIRMWARE,
                            delay_value=str(delay_value), delay_unit=delay_unit)
+
+
+@server.route("/install", methods=["GET", "POST"])
+def install_page(request):
+    global install_state
+
+    if request.method == "POST":
+        plugin = request.form["selected-plugin"]
+
+        # not busy, able to install.
+        if install_state is None or install_state["finished"] is True:
+            # check the plugin is not already install
+            if plugin not in config.plugins:
+                install_state = {"plugin": plugin,
+                                 "done": 0,
+                                 "total": 0,
+                                 "finished": False,
+                                 "error": None}
+
+                loop.create_task(install_plugin(plugin))
+
+        return redirect("/install", status=303)
+
+    return render_template("html/install.html", thumbnail_base=THUMBNAIL_BASE)
 
 
 @server.route("/reboot", methods=["POST"])
@@ -734,6 +746,19 @@ def serve_index(_request):
         return json.dumps({"plugins": {}, "pending": True}), 200, "application/json"
 
 
+@server.route("/install.json")
+def serve_install_status(_request):
+    global install_state
+
+    if install_state is None:
+        return "{}", 200, "application/json"
+
+    state = install_state
+    if state["finished"]:
+        install_state = None
+    return json.dumps(state), 200, "application/json"
+
+
 async def refresh_index():
     index_fetch.fetch(INDEX_PATH, file=INDEX_CACHE, interval=INDEX_INTERVAL)
 
@@ -747,6 +772,97 @@ async def refresh_index():
             # interval on a completed fetch.
             print("index refresh failed:", e)
             await asyncio.sleep(60)
+
+
+async def install_plugin(plugin):
+
+    install_fetch = fetch.AsyncFetch(INDEX_HOST)
+
+    plugin_base = f"{INDEX_BASE}/{plugin}/"
+    temp_location = f"{INSTALL_DIR}/{plugin}"
+    package_file = "package.json"
+
+    try:
+        # get the manifest for the plugin
+        install_fetch.fetch(f"{plugin_base}{package_file}")
+
+        # we can't do anything else until that file is with us.
+        while install_fetch.update() == fetch.AsyncFetch.FETCHING:
+            await asyncio.sleep_ms(5)
+
+        # total number of plugin files
+        j = install_fetch.to_json()
+        install_state["total"] = len(j["urls"])
+
+        try:
+            os.mkdir(INSTALL_DIR)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+        try:
+            os.mkdir(temp_location)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+        expected_prefix = f"plugins/{plugin}/"
+
+        # download each file listed for the requested plugin
+        for dest, src in j["urls"]:
+            package_file = src
+            if ".." in dest or not dest.startswith(expected_prefix):
+                raise ValueError
+            file_path = dest[len(expected_prefix):]
+            if "/" in file_path:
+
+                # split the folders out so we can create them
+                folders = file_path.split("/")
+
+                # the last element is the file name, we don't need that.
+                folders.pop()
+
+                # go through and create the sub folders.
+                current = temp_location
+                for folder in folders:
+                    current += f"/{folder}"
+                    try:
+                        os.mkdir(current)
+                    except OSError as e:
+                        if e.errno != errno.EEXIST:
+                            raise
+
+            # grab the next file
+            install_fetch.fetch(f"{plugin_base}{src}", file=f"{temp_location}/{file_path}")
+            while install_fetch.update() == fetch.AsyncFetch.FETCHING:
+                await asyncio.sleep_ms(5)
+
+            # bump the counter by one
+            install_state["done"] += 1
+
+        # now it's done, we can move the downloaded plugin to the right folder.
+        os.rename(temp_location, f"/lib/plugins/{plugin}")
+
+        config.plugins.append(plugin)
+        load_plugins()
+
+        if plugin in config.disabled_plugins:
+            install_state["error"] = "installed but failed to start"
+        else:
+            write_config()
+
+    except (OSError, ValueError, KeyError, fetch.HTTPException):
+        install_fetch.reset()
+        try:
+            # the download failed. we want to remove the folder.
+            rmtree(temp_location)
+        except OSError:
+            pass
+
+        install_state["error"] = f"unable to download {package_file}"
+
+    # complete or not, we're done now.
+    install_state["finished"] = True
 
 
 def draw_wifi_icon(connected, attempt=1):
@@ -992,6 +1108,11 @@ if not network_failed:
 try:
     os.mkdir("/lib")
     os.mkdir("/lib/plugins")
+except OSError:
+    pass
+
+try:
+    rmtree(INSTALL_DIR)
 except OSError:
     pass
 
