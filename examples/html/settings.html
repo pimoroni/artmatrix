@@ -31,7 +31,7 @@
 </section>
 <section id="installation">
     <a class="button" href="/install">Discover more plugins</a>
-    <p class="warning" id="install-error" hidden></p>
+    <p class="warning" id="plugin-error" hidden></p>
 </section>
 <hr>
 <section id="timing">
@@ -252,15 +252,26 @@
                 enable_toggle.checked = enabled;
 
                 enable_toggle.addEventListener("click", function() {
+                    var warning = document.getElementById("plugin-error");
                     fetch(`/active?plugin=${plugin}&state=${this.checked}`, {
                         method: 'POST',
                     })
                     .then((response) => {
                         if (response.ok) {
                             this.closest("li").className = this.checked ? "enabled" : "disabled";
-                        } else {
-                            this.checked = !this.checked;
+                            warning.hidden = true;
+                            return;
                         }
+                        this.checked = !this.checked;
+                        return response.text().then((text) => {
+                            warning.textContent = `${displayName(plugin)}: ${text}`;
+                            warning.hidden = false;
+                        });
+                    })
+                    .catch(() => {
+                        this.checked = !this.checked;
+                        warning.textContent = `${displayName(plugin)}: couldn't reach the device`;
+                        warning.hidden = false;
                     });
                 });
 
@@ -331,7 +342,7 @@
         fetch("/install.json")
         .then((response) => response.json())
         .then((state) => {
-            var warning = document.getElementById("install-error");
+            var warning = document.getElementById("plugin-error");
 
             if (!state.plugin) return;
 

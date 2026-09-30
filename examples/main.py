@@ -612,13 +612,7 @@ def set_active_state(request):
     elif plugin_name in config.disabled_plugins:
         config.disabled_plugins.remove(plugin_name)
 
-    try:
-        load_plugins()
-    except MemoryError:
-        gc.collect()
-        config.disabled_plugins.append(plugin_name)
-        load_plugins()
-        return "Not enough memory to enable this plugin", 507
+    load_plugins()
     write_config()
 
     # a failed import is disabled again inside load_plugins()
