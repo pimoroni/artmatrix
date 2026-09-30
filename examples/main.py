@@ -853,7 +853,6 @@ async def install_plugin(plugin):
             write_config()
 
     except (OSError, ValueError, KeyError, fetch.HTTPException):
-        install_fetch.reset()
         try:
             # the download failed. we want to remove the folder.
             rmtree(temp_location)
@@ -862,7 +861,8 @@ async def install_plugin(plugin):
 
         install_state["error"] = f"unable to download {package_file}"
 
-    # complete or not, we're done now.
+    # complete or not, we're done now. Close the connection, a later install makes its own.
+    install_fetch.reset()
     install_state["finished"] = True
 
 
