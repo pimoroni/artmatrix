@@ -509,13 +509,12 @@ def install_page(request):
 
 
 @server.route("/reboot", methods=["POST"])
-def device_reboot(request):
+def device_reboot(_request):
 
-    if request.method == "POST":
-        machine.reset()
+    # reset after the response has gone out, or the browser waits on a dead connection
+    machine.Timer(mode=machine.Timer.ONE_SHOT, period=1000, callback=lambda _t: machine.reset())
 
-    return render_template("html/settings.html", version=FIRMWARE,
-                           delay_value=str(delay_value), delay_unit=delay_unit)
+    return render_template("html/rebooting.html")
 
 
 @server.route("/synctime", methods=["POST"])
