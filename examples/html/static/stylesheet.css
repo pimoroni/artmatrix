@@ -16,6 +16,7 @@
   --accent-tint:   rgba(108, 92, 224, 0.11);
   --accent-tint-2: rgba(108, 92, 224, 0.18);
   --danger:        #ff8f8a;
+  --success:       #2f9e5b;
 
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -676,6 +677,12 @@ button.warning:hover {
 }
 
 button.warning:focus-visible { outline-color: var(--danger); }
+
+button.success,
+button.success:hover {
+  background: var(--success);
+  border-color: var(--success);
+}
 
 output {
   min-width: 3.5ch;

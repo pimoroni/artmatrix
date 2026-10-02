@@ -135,7 +135,7 @@
         button.textContent = "Testing WiFi connection"
       } else {
         button.removeAttribute("aria-busy")
-        button.textContent = "Done! ➔"
+        button.textContent = "Retry ➔"
       }
     }
 
@@ -185,7 +185,11 @@
                     if (text == "OK") {
                       console.log("CONNECTION OKAY SUBMITTING FORM")
                       // the board restarts on POST, so this page goes away with it
-                      setStatus("Connected! Saving settings & restarting. You can close this page and rejoin your usual WiFi.")
+                      let button = document.getElementById("submit_button")
+                      button.removeAttribute("aria-busy")
+                      button.classList.add("success")
+                      button.textContent = "Connected ✓"
+                      setStatus("Saving settings & restarting. You can close this page and rejoin your usual WiFi.")
                       event.target.onsubmit = null
                       event.target.submit()
                     } else {
