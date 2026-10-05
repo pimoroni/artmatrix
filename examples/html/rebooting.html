@@ -20,8 +20,12 @@
 
 <script>
 // poll until the board answers again, then go back to the settings page
-const poll = () => fetch("/", {signal: AbortSignal.timeout(1000)})
-    .then(() => location.replace("/"), () => setTimeout(poll, 500));
+const poll = () => {
+    const c = new AbortController();
+    setTimeout(() => c.abort(), 2000);
+    fetch("/", {signal: c.signal})
+        .then(() => location.replace("/"), () => setTimeout(poll, 500));
+};
 setTimeout(poll, 2000);
 </script>
 

@@ -511,6 +511,9 @@ def install_page(request):
 @server.route("/reboot", methods=["POST"])
 def device_reboot(_request):
 
+    if install_state is not None and not install_state["finished"]:
+        return "A plugin is still installing. Go back and reboot once it has finished.", 409, "text/plain"
+
     # reset after the response has gone out, or the browser waits on a dead connection
     machine.Timer(mode=machine.Timer.ONE_SHOT, period=1000, callback=lambda _t: machine.reset())
 
