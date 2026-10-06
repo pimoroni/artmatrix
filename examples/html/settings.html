@@ -47,6 +47,8 @@
 </section>
 <hr>
 <section id="reboot">
+    <button type="button" class="secondary" onclick="this.hidden = true; document.querySelector('#advanced').hidden = false">Advanced settings</button>
+    <div id="advanced" hidden>
     <h3>System:</h3>
     <div>
       <label>Memory</label>
@@ -92,6 +94,7 @@
           <input type="hidden" name="confirm" value="1">
           <button type="submit" class="warning" >Reboot</button>
       </form>
+    </div>
     </div>
 </section>
 
