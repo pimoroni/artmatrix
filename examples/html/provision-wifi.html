@@ -18,12 +18,13 @@
   <section id="wifi_details">
     <form id="main" action="/provision-welcome" method="post">
       <h2>OK, next up we'll need some WiFi details.</h2>
-      <aside>In order to set the time and upload your data we will need access to a wireless internet connection.
-      </aside>
+      <aside>Your Art Matrix uses WiFi to set its clock, download new plugins and let you change its settings from your
+        phone or computer.</aside>
 
       <br>
 
       <h2>Enter a name for your device</h2>
+      <aside>This is how you'll find the settings page later, at <em>name</em>.local in your browser.</aside>
       <fieldset>
         <input id="wifi_hostname" name="wifi_hostname" type="text" value="{{config.wifi_hostname}}"
           placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
@@ -69,9 +70,9 @@
 
       <br>
 
-      <h2>Enter your WiFi password so that we can <s>download pictures of cats</s> upload your data.</h2>
-      <aside>If your device ever has a problem connecting to WiFi during startup then the alarm LED will blink red to
-        let you know that something's wrong.</aside>
+      <h2>Enter your WiFi password so that we can <s>download pictures of cats</s> fetch new plugins.</h2>
+      <aside>If your Art Matrix ever has a problem connecting to WiFi at startup, it'll try three times, then the LEDs
+        will turn red to let you know that something's wrong.</aside>
       <fieldset>
         <input id="wifi_password" name="wifi_password" type="text" value="{{config.wifi_password}}"
           placeholder="e.g. Cats4lyfe&lt;3!" autocapitalize="none" autocorrect="off" autocomplete="off"
