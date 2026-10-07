@@ -34,7 +34,7 @@ time.sleep(1)
 
 # Holding A and C through power-on forces provisioning.
 PROVISION_BUTTONS = (Pin(BUTTON_A, Pin.IN, Pin.PULL_UP), Pin(BUTTON_C, Pin.IN, Pin.PULL_UP))
-PROVISION_HOLD = 1.0
+PROVISION_HOLD = 0.2
 
 
 def provision_buttons_held(duration):
