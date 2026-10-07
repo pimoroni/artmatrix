@@ -286,6 +286,7 @@
                     var text_span = document.createElement("span");
                     text_span.className = "plugin-text";
                     text_span.textContent = displayName(plugin);
+                    text_span.onclick = config_link.onclick;
                     item.appendChild(text_span);
 
                     var drag_handle = document.createElement("span");
