@@ -17,6 +17,7 @@ import version
 from easing import easeOutCubic
 from machine import Pin
 from phew import logging, redirect, render_template, serve_file, server
+from scrolling import Scroll
 
 sd_present = False
 sd_logo = image.load("/assets/sd_card_icon.png")
@@ -891,6 +892,9 @@ def draw_wifi_icon(connected, attempt=1):
         screen.text(label, vec2(x, 100))
 
 
+address_scrolls = {}
+
+
 def show_no_plugins():
 
     screen.pen = color.rgb(0, 0, 0)
@@ -904,13 +908,26 @@ def show_no_plugins():
     screen.text("Go to", 5, y)
     y += 15
     screen.pen = color.blue
-    screen.text(f"{config.wifi_hostname}.local", 5, y)
+    address = f"http://{config.wifi_hostname}.local"
+    # An address too wide for the screen scrolls
+    if screen.measure_text(address)[0] > screen.width - 5:
+        if address not in address_scrolls:
+            address_scrolls[address] = Scroll(address, rom_font.nope, align=y, gap=30)
+        address_scrolls[address]()
+    else:
+        screen.text(address, 5, y)
     y += 15
     screen.pen = color.white
     screen.text("Or", 5, y)
     y += 15
     screen.pen = color.blue
-    screen.text(f"{wifi.ipv4()}", 5, y)
+    address = f"http://{wifi.ipv4()}"
+    if screen.measure_text(address)[0] > screen.width - 5:
+        if address not in address_scrolls:
+            address_scrolls[address] = Scroll(address, rom_font.nope, align=y, gap=30)
+        address_scrolls[address]()
+    else:
+        screen.text(address, 5, y)
     y += 15
     screen.pen = color.white
     screen.text("in your browser.", 5, y)
