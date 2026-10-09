@@ -143,10 +143,36 @@ migrate_config()
 
 import wifi  # noqa E402
 
-# How long each connection attempt gets, and how many attempts.
-WIFI_DEADLINE = 60
-WIFI_ATTEMPTS = 3
-network_failed = False
+# How long boot waits for Wi-Fi before starting the plugins anyway
+WIFI_DEADLINE = 20
+
+# Where the connection stands. A plugin whose package.json sets
+# requires_internet only runs while ONLINE.
+NO_WIFI, NO_INTERNET, ONLINE = 0, 1, 2
+CONNECTION_NAMES = ("no Wi-Fi", "no internet", "online")
+connection = NO_WIFI
+
+# Seconds without a link before the radio is restarted, the last repeating
+RECONNECT_DELAYS = (30, 60)
+
+# Seconds between internet checks while there's Wi-Fi but no internet. Each
+# check can hold the display for a DNS lookup, so they spread out.
+CHECK_DELAYS = (60, 120, 300, 900)
+
+# The icon drawn over the plugins while not online: the splash's Wi-Fi icon on
+# a half-transparent black rounded box, ICON_INSET in from the top right
+ICON_INSET = 5
+ICON_SCALE = 0.8
+ICON_SIZE = 18
+ICON_X = screen.width - ICON_INSET - ICON_SIZE
+ICON_Y = ICON_INSET
+
+# What the plugin drew under the icon, copied out before it's drawn and back
+# once the frame is out. blit() blends, so it wouldn't restore exactly.
+ROW_BYTES = len(memoryview(screen)) // screen.height
+PATCH_BYTES = ROW_BYTES * ICON_SIZE // screen.width
+PATCH_START = ICON_Y * ROW_BYTES + ROW_BYTES * ICON_X // screen.width
+icon_patches = [bytearray(PATCH_BYTES * ICON_SIZE) for _ in surfaces]
 
 # Location of plugin index
 INDEX_HOST = "raw.githubusercontent.com"
@@ -154,6 +180,9 @@ INDEX_BASE = "/pimoroni/artmatrix-plugins/refs/heads/main"
 INDEX_PATH = f"{INDEX_BASE}/index.json"
 INDEX_CACHE = "/index-cache.json"
 INDEX_INTERVAL = 15 * 60
+
+# the server name ntptime ships with, kept before sync_time() swaps in its address
+NTP_HOST = ntptime.host
 
 # The install page's browser fetches thumbnails from the index host itself, as
 # plugins that aren't installed have none on the device.
@@ -180,6 +209,10 @@ else:
 last_changed = None
 current_plugin = 0
 enabled_plugins = []
+
+# Every enabled plugin as (name, module, requires_internet), and the ones in
+# the rotation now as (name, module)
+loaded = []
 modules = []
 
 # global brightness and setting
@@ -357,7 +390,7 @@ def save_config():
 
 
 def load_plugins():
-    global enabled_plugins, modules, current_plugin, delay
+    global enabled_plugins, modules, loaded, delay
 
     delay = int(config.delay)
 
@@ -382,7 +415,7 @@ def load_plugins():
     # drop plugins that are no longer running, before importing, so their RAM is
     # back in time for whatever is being enabled.
     modules = []
-    running = [] if network_failed else enabled_plugins
+    loaded = []
 
     for key in list(sys.modules):
         if key.startswith("/lib/plugins/"):
@@ -392,17 +425,18 @@ def load_plugins():
         else:
             continue
 
-        if name not in running:
+        if name not in enabled_plugins:
             del sys.modules[key]
             plugin_state.pop(name, None)
             plugin_failures.pop(name, None)
 
     gc.collect()
 
-    # import enabled plugins. Plugins only run with a network
-    for plugin in [] if network_failed else list(enabled_plugins):
+    # Import every enabled plugin, those that need the internet included while
+    # there's none, so the rotation can change later without an import's pause
+    for plugin in list(enabled_plugins):
         try:
-            modules.append((plugin, import_plugin(plugin)))
+            module = import_plugin(plugin)
         except (ImportError, SyntaxError, OSError, MemoryError, ValueError):
 
             # claw back some memory, especially if the error was memory related.
@@ -413,18 +447,49 @@ def load_plugins():
             enabled_plugins.remove(plugin)
             config.disabled_plugins.append(plugin)
             write_config()
+            continue
 
-    # reset the current to zero, start from the beginning.
-    current_plugin = 0
+        try:
+            with open(f"/lib/plugins/{plugin}/package.json") as file:
+                needs_internet = json.load(file).get("requires_internet", False)
+        except (OSError, ValueError):
+            # no manifest on the board, so it runs whatever the connection
+            needs_internet = False
 
-    # This runs from web handlers, so a transition may be part way through and
-    # holding indices into the list we just rebuilt.
-    reset_transition()
+        loaded.append((plugin, module, needs_internet))
+
+    # modules is empty, so this starts the rotation from the beginning
+    pick_rotation()
+
+
+def pick_rotation():
+    """Rotate the loaded plugins that can run as things stand, without importing
+    anything. The plugin showing stays on if it can still run."""
+    global modules, current_plugin, fading
+
+    showing = modules[current_plugin][0] if modules else None
+    modules = [(name, module) for name, module, needs_internet in loaded
+               if connection == ONLINE or not needs_internet]
+    names = [entry[0] for entry in modules]
+
+    if showing in names:
+        # as in resync_modules(), a fade's indices are stale but the surfaces stand
+        fading = False
+        current_plugin = names.index(showing)
+    else:
+        current_plugin = 0
+
+        # This runs from web handlers, so a transition may be part way through
+        # and holding indices into the list just rebuilt.
+        reset_transition()
 
 
 def resync_modules():
     """Match the module order to enabled_plugins without re-importing anything."""
     global current_plugin, fading
+
+    # plugins held out of the rotation keep their place for when they rejoin
+    loaded.sort(key=lambda entry: enabled_plugins.index(entry[0]))
 
     if not modules:
         return
@@ -531,6 +596,15 @@ def device_sync_time(_request):
 
     year, month, day, hour, minute, second = time.localtime()[:6]
     return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d} UTC", 200, "text/plain"
+
+
+@server.route("/offline_icon", methods=["POST"])
+def device_offline_icon(request):
+
+    config.offline_icon = request.form.get("value") == "true"
+    write_config()
+
+    return "OK", 200
 
 
 @server.route("/brightness", methods=["POST"])
@@ -691,10 +765,11 @@ def configure_plugin(request):
             del sys.modules[f"/lib/plugins/{plugin}"]
             gc.collect()
 
-            # only enabled plugins are in modules, a disabled one reloads when enabled
-            for index, (name, _module) in enumerate(modules):
+            # only enabled plugins are loaded, a disabled one reloads when enabled
+            for index, (name, _module, needs_internet) in enumerate(loaded):
                 if name == plugin:
-                    modules[index] = (plugin, import_plugin(plugin))
+                    loaded[index] = (plugin, import_plugin(plugin), needs_internet)
+                    pick_rotation()
                     reset_transition()
                     break
             return redirect(f"/config?plugin={plugin}", status=303)
@@ -734,14 +809,18 @@ def plugins(_request):
 
 @server.route("/index.json")
 def serve_index(_request):
-    # serve the cached index; refresh_index() keeps it current in the background
+    # serve the cached index; watch_connection() keeps it current in the background
     try:
         with open(INDEX_CACHE, "r") as file:
-            return json.dumps(json.load(file)), 200, "application/json"
+            index = json.load(file)
 
     except (ValueError, OSError):
         # nothing cached yet, tell the page to come back
-        return json.dumps({"plugins": {}, "pending": True}), 200, "application/json"
+        index = {"plugins": {}, "pending": True}
+
+    # so the pages stop waiting for the catalogue while offline
+    index["offline"] = connection != ONLINE
+    return json.dumps(index), 200, "application/json"
 
 
 @server.route("/install.json")
@@ -757,19 +836,110 @@ def serve_install_status(_request):
     return json.dumps(state), 200, "application/json"
 
 
-async def refresh_index():
+def sync_time():
+    """Set the clock from NTP, which doubles as the check for the internet.
+    Returns None once synced, or the error."""
+    try:
+        # an address, so ntptime doesn't look the name up on every check
+        ntptime.host = fetch.resolve(NTP_HOST, 123)[-1][0]
+        ntptime.settime()
+        error = None
+    except (OSError, OverflowError, ValueError) as e:
+        error = e
+
+    return error
+
+
+def set_connection(state):
+    global connection
+
+    was_online = connection == ONLINE
+    connection = state
+    print("connection:", CONNECTION_NAMES[state])
+
+    # plugins that need the internet join or leave the rotation
+    if was_online != (state == ONLINE):
+        pick_rotation()
+
+
+async def watch_connection():
+    lost_at = time.ticks_ms()
+    reconnects = 0
+
+    # boot has just tried NTP, so the first check waits
+    check_at = time.ticks_add(time.ticks_ms(), CHECK_DELAYS[0] * 1000)
+    checks = 1
+
     index_fetch.fetch(INDEX_PATH, file=INDEX_CACHE, interval=INDEX_INTERVAL)
 
     while True:
+        now = time.ticks_ms()
+
+        if not wifi.is_connected():
+            if connection != NO_WIFI:
+                lost_at = now
+                reconnects = 0
+                index_fetch.reset()
+                set_connection(NO_WIFI)
+
+            # cyw43 rejoins a short dropout by itself; a long one needs the radio restarted
+            elif time.ticks_diff(now, lost_at) > RECONNECT_DELAYS[min(reconnects, len(RECONNECT_DELAYS) - 1)] * 1000:
+                wifi.disconnect()
+                wifi.connect()
+                lost_at = time.ticks_ms()
+                reconnects += 1
+
+            await asyncio.sleep(1)
+            continue
+
+        if connection == NO_WIFI:
+            check_at = now
+            checks = 0
+            set_connection(NO_INTERNET)
+
+        if connection == NO_INTERNET:
+            if time.ticks_diff(now, check_at) >= 0:
+                error = sync_time()
+                online = error is None
+
+                # A network that blocks NTP can still reach GitHub. A failed
+                # lookup, a negative lwIP code, means DNS is down, and the index
+                # lookup would block for as long again.
+                dns_down = isinstance(error, OSError) and isinstance(error.errno, int) and error.errno < 0
+                if not online and not dns_down:
+                    probe = fetch.AsyncFetch(INDEX_HOST)
+                    probe.fetch(INDEX_PATH, file=INDEX_CACHE)
+                    try:
+                        while probe.update() == fetch.AsyncFetch.FETCHING:
+                            await asyncio.sleep_ms(100)
+                        online = True
+                    except (OSError, ValueError, fetch.HTTPException) as e:
+                        print("index check failed:", e)
+                    probe.reset()
+
+                if online:
+                    set_connection(ONLINE)
+                else:
+                    check_at = time.ticks_add(time.ticks_ms(), CHECK_DELAYS[min(checks, len(CHECK_DELAYS) - 1)] * 1000)
+                    checks += 1
+
+            await asyncio.sleep(1)
+            continue
+
+        # Online, so keep the index cache fresh. A failed refresh leaves the
+        # previous cache in place.
         try:
             index_fetch.update()
-            await asyncio.sleep_ms(100)
-        except Exception as e:  # noqa: BLE001
-            # a failed refresh leaves the previous cache in place. Back off, or a
-            # persistent failure retries every tick: update() only stamps the
-            # interval on a completed fetch.
+        except (OSError, ValueError, fetch.HTTPException) as e:
             print("index refresh failed:", e)
-            await asyncio.sleep(60)
+
+            # one unreachable host could be just that host, so check NTP as well
+            if sync_time() is not None:
+                check_at = time.ticks_add(time.ticks_ms(), CHECK_DELAYS[0] * 1000)
+                checks = 1
+                set_connection(NO_INTERNET)
+
+        await asyncio.sleep_ms(100)
 
 
 async def install_plugin(plugin):
@@ -803,6 +973,10 @@ async def install_plugin(plugin):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
+
+        # kept with the plugin, load_plugins() reads requires_internet from it
+        with open(f"{temp_location}/package.json", "w") as file:
+            json.dump(j, file)
 
         expected_prefix = f"plugins/{plugin}/"
 
@@ -863,39 +1037,39 @@ async def install_plugin(plugin):
     install_state["finished"] = True
 
 
-def draw_wifi_icon(connected, attempt=1):
+def draw_wifi_icon(surface, x1, y1, connected, label=None, scale=1):
+    """The Wi-Fi arcs with their centre at x1, y1, drawn at scale. Unless
+    connected they're crossed out in red, with label centred below."""
 
     radius = 10
     arc = 50
     line_angle = math.radians(arc)
-    dx = ((radius * 2) / 2) * math.cos(line_angle)
-    dy = ((radius * 2) / 2) * math.sin(line_angle)
-    oy = -7
-    ox = -1
-    x1 = (screen.width / 2)
-    y1 = 23
+    dx = ((radius * 2) / 2) * math.cos(line_angle) * scale
+    dy = ((radius * 2) / 2) * math.sin(line_angle) * scale
+    oy = -7 * scale
+    ox = -1 * scale
 
-    screen.pen = color.white
+    surface.pen = color.white
     for r in range(0, radius + 1, 5):
-        screen.shape(shape.arc(x1, y1, r, r + 3, -arc, arc))
-    screen.shape(shape.circle(x1, y1 - 1, 2))
+        surface.shape(shape.arc(x1, y1, r * scale, (r + 3) * scale, -arc, arc))
+    surface.shape(shape.circle(x1, y1 - scale, 2 * scale))
 
     if not connected:
-        screen.pen = color.red
-        screen.font = font.smart
-        screen.shape(shape.line(x1 + ox - dx, y1 + oy - dy, x1 + ox + dx, y1 + oy + dy, 2))
+        surface.pen = color.red
+        surface.shape(shape.line(x1 + ox - dx, y1 + oy - dy, x1 + ox + dx, y1 + oy + dy, 2 * scale))
 
-        label = "Connecting" if attempt == 1 else f"Attempt {attempt} of {WIFI_ATTEMPTS}"
-        w, h = screen.measure_text(label)
-        x = (screen.width / 2) - (w / 2)
-        screen.pen = color.white
-        screen.text(label, vec2(x, 100))
+        if label:
+            surface.font = font.smart
+            w, h = surface.measure_text(label)
+            x = (surface.width / 2) - (w / 2)
+            surface.pen = color.white
+            surface.text(label, vec2(x, 100))
 
 
 address_scrolls = {}
 
 
-def show_no_plugins():
+def show_no_plugins(title="No Plugins :("):
 
     screen.pen = color.rgb(0, 0, 0)
     screen.clear()
@@ -903,7 +1077,7 @@ def show_no_plugins():
     y = 5
     screen.pen = color.white
     screen.font = rom_font.nope
-    screen.text("No Plugins :(", 5, y)
+    screen.text(title, 5, y)
     y += 45
     screen.text("Go to", 5, y)
     y += 15
@@ -956,7 +1130,7 @@ def show_wifi_failed():
     screen.text(name, 5, y)
     y += 23
     screen.pen = color.white
-    screen.text("RESET to retry.", 5, y)
+    screen.text("Still trying.", 5, y)
     y += 15
     screen.text("Hold A+C and", 5, y)
     y += 15
@@ -996,14 +1170,60 @@ def reset_transition():
     last_changed = time.time()
 
 
-async def flip(blend):
-    """Commit a frame, then wait for core1 before anything draws again."""
+async def flip(blend, slots=()):
+    """Commit a frame, then wait for core1 before anything draws again. While
+    not online the icon goes over the surfaces in slots, for this frame only."""
+    covered = slots if connection != ONLINE and config.offline_icon else ()
+
+    # At full size the arcs reach 10 px either side of x1, the cross 16 px above
+    # y1 and the dot 1 px below, so this centres the icon in its box, a pixel
+    # high by eye
+    x1 = ICON_X + ICON_SIZE // 2
+    y1 = ICON_Y + round(17 * ICON_SCALE)
+    s = ICON_SCALE
+
+    for slot in covered:
+        surface = surfaces[slot]
+        buffer = memoryview(surface)
+        patch = icon_patches[slot]
+        for row in range(ICON_SIZE):
+            start = PATCH_START + row * ROW_BYTES
+            patch[row * PATCH_BYTES:(row + 1) * PATCH_BYTES] = buffer[start:start + PATCH_BYTES]
+
+        # the surface's pen, clip and so on are the plugin's
+        state = capture_state(surface)
+        surface.alpha = 255
+        surface.antialias = image.X4
+        surface.clip = rect(ICON_X, ICON_Y, ICON_SIZE, ICON_SIZE)
+        surface.pen = color.rgb(0, 0, 0, 128)
+        surface.shape(shape.rounded_rectangle(ICON_X, ICON_Y, ICON_SIZE, ICON_SIZE, 3, 3, 3, 3))
+
+        draw_wifi_icon(surface, x1, y1, connection != NO_WIFI, scale=s)
+
+        if connection == NO_INTERNET:
+            # over the right of the arcs, with a black edge to keep it apart from them
+            surface.pen = color.black
+            surface.shape(shape.rectangle(x1 + 5 * s, y1 - 14 * s, 4 * s, 16 * s))
+            surface.pen = color.rgb(255, 160, 0)
+            surface.shape(shape.rectangle(x1 + 6 * s, y1 - 13 * s, 2 * s, 9 * s))
+            surface.shape(shape.rectangle(x1 + 6 * s, y1 - 2 * s, 2 * s, 2 * s))
+
+        apply_state(surface, state)
+
     display.update(blend)
 
     # Waiting here rather than after the next draw is what keeps the clear from
     # chasing the flip, and the awaits let the web server run meanwhile.
     while display.is_busy():
         await asyncio.sleep_ms(0)
+
+    # the plugin's next frame starts from the pixels it drew
+    for slot in covered:
+        buffer = memoryview(surfaces[slot])
+        patch = icon_patches[slot]
+        for row in range(ICON_SIZE):
+            start = PATCH_START + row * ROW_BYTES
+            buffer[start:start + PATCH_BYTES] = patch[row * PATCH_BYTES:(row + 1) * PATCH_BYTES]
 
 
 def start_transition():
@@ -1068,7 +1288,7 @@ async def draw():
                 if progress >= 1.0:
                     fading = False
 
-                await flip(mix if current_slot else 255 - mix)
+                await flip(mix if current_slot else 255 - mix, (0, 1))
             else:
                 healthy = run_plugin(name, module, current_slot, verify=True)
 
@@ -1077,7 +1297,7 @@ async def draw():
                 if current_slot and name in direct_framebuffer:
                     current_slot = 0
 
-                await flip(255 if current_slot else 0)
+                await flip(255 if current_slot else 0, (current_slot,))
 
                 due = (time.time() - last_changed) > delay
                 if (due or not healthy) and len(modules) > 1:
@@ -1086,8 +1306,11 @@ async def draw():
             builtins.screen = surfaces[0]
             # the surface belongs to no plugin now, so the next bind restores fully
             slot_owner[0] = None
-            if network_failed:
+            if connection == NO_WIFI:
                 show_wifi_failed()
+            elif connection == NO_INTERNET and enabled_plugins:
+                # everything switched on needs the internet
+                show_no_plugins("No Internet :(")
             else:
                 show_no_plugins()
             await flip(0)
@@ -1098,25 +1321,19 @@ async def draw():
 
 leds(color.rgb(255, 120, 0))
 
-for attempt in range(1, WIFI_ATTEMPTS + 1):
-    screen.blit(static_splash, vec2(0, 0))
-    draw_wifi_icon(False, attempt)
-    display.update()
+screen.blit(static_splash, vec2(0, 0))
+draw_wifi_icon(screen, screen.width / 2, 23, False, "Connecting")
+display.update()
 
-    wifi.disconnect()
-    wifi.connect()
-    if wait_for_wifi(time.ticks_add(time.ticks_ms(), WIFI_DEADLINE * 1000)):
-        break
+# One attempt, then the plugins start whatever happened. watch_connection()
+# carries on from there.
+wifi.connect()
+if wait_for_wifi(time.ticks_add(time.ticks_ms(), WIFI_DEADLINE * 1000)):
+    connection = ONLINE if sync_time() is None else NO_INTERNET
 
-network_failed = not wifi.is_connected()
-leds(color.rgb(255, 0, 0) if network_failed else color.rgb(0, 255, 0))
+print("connection:", CONNECTION_NAMES[connection])
 
-if not network_failed:
-    # ignore OSError and continue
-    try:
-        ntptime.settime()
-    except OSError:
-        pass
+leds(color.rgb(0, 255, 0) if wifi.is_connected() else color.rgb(255, 0, 0))
 
 
 try:
@@ -1136,13 +1353,13 @@ load_plugins()
 screen.blit(static_splash, vec2(0, 0))
 
 # draw the connected icon and update the display
-draw_wifi_icon(wifi.is_connected())
+draw_wifi_icon(screen, screen.width / 2, 23, wifi.is_connected(), "Connecting")
 if sd_present:
     screen.blit(sd_logo, 5, 5)
 display.update()
 
-if not network_failed:
-    leds.clear()
+# from here the corner icon shows the connection
+leds.clear()
 
 del sd_logo
 
@@ -1159,6 +1376,6 @@ DOMAIN = f"{config.wifi_hostname}.local"
 display.set_blocking(False)
 
 loop.create_task(draw())
-loop.create_task(refresh_index())
+loop.create_task(watch_connection())
 loop.create_task(flush_config())
 server.run(host="0.0.0.0", port=80)

@@ -22,3 +22,6 @@ disabled_plugins = []
 
 # global brightness
 brightness = 100
+
+# show an icon in the corner of the plugins while there's no internet
+offline_icon = True

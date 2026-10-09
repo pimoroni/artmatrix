@@ -50,6 +50,10 @@
         fetch("/index.json")
         .then((response) => response.json())
         .then((data) => {
+            if (data.offline) {
+                status.textContent = "The Art Matrix has no internet, so plugins can't be installed right now.";
+                return;
+            }
             if (data.pending) {
                 if (attempt < 10) setTimeout(() => loadIndex(attempt + 1), 2000);
                 else status.textContent = "The plugin list couldn't be fetched. Try again in a minute.";

@@ -1,9 +1,69 @@
 import io
+import os
 import tls
 import time
 import errno
 import socket
 import json
+
+
+# Seconds an address is used before its name is looked up again. A lookup
+# blocks, for seconds when DNS doesn't answer, so a failed one keeps the old
+# address for another round.
+DNS_TTL = 30 * 60
+
+# The addresses survive a reboot, so the first fetch after one doesn't wait on
+# DNS. The file keeps the most recently used, so a removed plugin's host drops
+# out once enough newer ones have been used.
+DNS_CACHE = "/dns-cache.json"
+DNS_CACHE_SIZE = 32
+
+# (host, port): [address info, when it was looked up, when it was last used]
+_addresses = {}
+_uses = 0
+
+try:
+    with open(DNS_CACHE) as file:
+        # saved most recently used first, so read oldest first
+        for key, (family, kind, proto, name, address) in json.load(file)[::-1]:
+            host, port = key.rsplit(":", 1)
+            _uses += 1
+            _addresses[(host, int(port))] = [(family, kind, proto, name, tuple(address)), time.time(), _uses]
+except (OSError, ValueError, TypeError):
+    # no file yet, or one that doesn't parse: start empty
+    _addresses = {}
+
+
+def resolve(host, port):
+    """getaddrinfo's first result for host, looked up again only once DNS_TTL is up."""
+    global _uses
+    _uses += 1
+    entry = _addresses.get((host, port))
+
+    # seconds, not ticks: ticks wrap within days, and a host can go unused for longer
+    if entry is None or time.time() - entry[1] > DNS_TTL:
+        try:
+            info = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)[0]
+        except OSError:
+            if entry is None:
+                raise
+            # keep the old address, and leave the lookup for another round
+            entry[1] = time.time()
+        else:
+            changed = entry is None or entry[0] != info
+            entry = _addresses[(host, port)] = [info, time.time(), _uses]
+
+            # a flash write takes the multicore lockout, so only for a new address
+            if changed:
+                recent = sorted(_addresses.items(), key=lambda item: item[1][2], reverse=True)
+                try:
+                    with open(DNS_CACHE, "w") as file:
+                        json.dump([[f"{h}:{p}", e[0]] for (h, p), e in recent[:DNS_CACHE_SIZE]], file)
+                except OSError as e:
+                    print("couldn't save the DNS cache:", e)
+
+    entry[2] = _uses
+    return entry[0]
 
 
 class HTTPException(Exception):
@@ -33,6 +93,9 @@ class AsyncFetch:
     # Seconds to wait for data before abandoning a fetch, 0 to wait forever
     TIMEOUT = 10
 
+    # Seconds before a fetch that failed to connect or read is tried again
+    RETRY_DELAY = 30
+
     # Statuses that carry no body, whatever their headers say
     BODYLESS_STATUS = (204, 304)
 
@@ -49,6 +112,7 @@ class AsyncFetch:
         self._sock = None  # hold the open socket
 
         self._last_update = None  # keep track of the last updated time
+        self._retry_at = None  # no new attempt before this, after a failure
 
         self._buffer = None  # bytearray holding an in-memory response
         self._buffer_len = 0  # amount of data actually in our buffer
@@ -121,8 +185,9 @@ class AsyncFetch:
             self._headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15"
 
         if blocking:
-            # Fetch now, not at the next interval
+            # Fetch now, not at the next interval or retry
             self._last_update = None
+            self._retry_at = None
             self.finish()
             return self.stream
 
@@ -131,6 +196,7 @@ class AsyncFetch:
     def reset(self):
         # Drop any pending fetch and cached socket, ready for a new fetch
         self._fetch = None
+        self._retry_at = None
         self._close_socket()
         self._status = AsyncFetch.IDLE
 
@@ -197,9 +263,9 @@ class AsyncFetch:
         return default
 
     def _connect(self):
-        # getaddrinfo blocks, so a hostname costs a DNS round trip inside this step,
-        # where an address costs nothing
-        sock_family, sock_type, sock_proto, _, sock_addr = socket.getaddrinfo(self._host, self._port, 0, socket.SOCK_STREAM)[0]
+        # getaddrinfo blocks, so a lookup costs a DNS round trip inside this step,
+        # where a cached address costs nothing
+        sock_family, sock_type, sock_proto, _, sock_addr = resolve(self._host, self._port)
 
         sock = socket.socket(sock_family, sock_type, sock_proto)
         sock.setblocking(False)
@@ -466,12 +532,17 @@ class AsyncFetch:
 
         self._buffer_len = 0
         stream = None
+        complete = False
+
+        # The target only changes on a whole 200, so an error page or a cut-off
+        # transfer can't replace a good copy
+        part = f"{self._file}.part"
 
         try:
             if self._file:
-                stream = open(self._file, "wb")
+                stream = open(part, "wb")
                 if self._debug:
-                    print(f"Streaming to {self._file}")
+                    print(f"Streaming to {part}")
 
             else:
                 # One allocation covers a response that declares its length
@@ -489,6 +560,8 @@ class AsyncFetch:
             elif self._content_length:
                 yield from self._read_body(stream, self._content_length)
 
+            complete = True
+
         except Exception:
             # A part-read body leaves the socket out of step with the next request
             self._close_socket()
@@ -498,12 +571,23 @@ class AsyncFetch:
             # Leave the in-memory buffer alone, it is handed out by the stream property
             if stream is not None:
                 stream.close()
+                if complete and self._status_code == 200:
+                    os.rename(part, self._file)
+                else:
+                    os.remove(part)
 
         if not self._keep_alive:
             self._close_socket()
 
     def update(self):
         self._status = AsyncFetch.IDLE
+
+        # Each new attempt starts with a blocking DNS lookup, so after a failure
+        # wait out the retry delay rather than trying again every frame
+        if self._fetch is None and self._retry_at is not None:
+            if time.ticks_diff(self._retry_at, time.ticks_ms()) > 0:
+                return self._status
+            self._retry_at = None
 
         if self._path is not None:
             if self._last_update is None or (self._interval > 0 and self.duration > int(self._interval * 1000)):
@@ -537,6 +621,7 @@ class AsyncFetch:
                     # Clear the pending fetch, or a single failure blocks every later fetch
                     self._fetch = None
                     self._status = AsyncFetch.ERROR
+                    self._retry_at = time.ticks_add(time.ticks_ms(), AsyncFetch.RETRY_DELAY * 1000)
                     raise
 
         return self._status

@@ -83,6 +83,12 @@
     </div>
     <hr>
     <div>
+      <label for="offline_icon">Offline icon</label>
+      <small>Show an icon in the corner of the display while there's no internet.</small>
+      <input type="checkbox" role="switch" id="offline_icon" data-value="{{config.offline_icon}}">
+    </div>
+    <hr>
+    <div>
       <label>Firmware</label>
       <small>{{version}}</small>
       <small><a href="https://github.com/pimoroni/artmatrix/releases" target="_blank" rel="noopener">Latest releases on GitHub</a></small>
@@ -159,6 +165,18 @@
         .finally(() => { sync.disabled = false; });
     });
 
+    const offline_icon = document.getElementById("offline_icon");
+    offline_icon.checked = offline_icon.dataset.value === "True";
+
+    offline_icon.addEventListener("change", () => {
+      // phew needs at least one field or the body arrives empty
+      fetch("/offline_icon", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${offline_icon.checked}`
+      });
+    });
+
     fetch("/usage.json")
       .then((response) => response.json())
       .then((data) => {
@@ -212,7 +230,8 @@
         fetch("/index.json")
         .then((response) => response.json())
         .then((data) => {
-            if (data.pending) {
+            // offline, the catalogue won't arrive, so list plugins by folder name
+            if (data.pending && !data.offline) {
                 if (attempt < 10) setTimeout(() => loadIndex(attempt + 1), 2000);
                 return;
             }
