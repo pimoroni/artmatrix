@@ -83,9 +83,9 @@
     </div>
     <hr>
     <div>
-      <label for="offline_icon">Offline icon</label>
-      <small>Show an icon in the corner of the display while there's no internet.</small>
-      <input type="checkbox" role="switch" id="offline_icon" data-value="{{config.offline_icon}}">
+      <label for="network_status">Network Status</label>
+      <small>Show an icon in the corner of the display when internet access or the network connection is lost.</small>
+      <input type="checkbox" role="switch" id="network_status" data-value="{{config.network_status}}">
     </div>
     <hr>
     <div>
@@ -165,15 +165,15 @@
         .finally(() => { sync.disabled = false; });
     });
 
-    const offline_icon = document.getElementById("offline_icon");
-    offline_icon.checked = offline_icon.dataset.value === "True";
+    const network_status = document.getElementById("network_status");
+    network_status.checked = network_status.dataset.value === "True";
 
-    offline_icon.addEventListener("change", () => {
+    network_status.addEventListener("change", () => {
       // phew needs at least one field or the body arrives empty
-      fetch("/offline_icon", {
+      fetch("/network_status", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `value=${offline_icon.checked}`
+        body: `value=${network_status.checked}`
       });
     });
 

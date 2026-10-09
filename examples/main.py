@@ -598,10 +598,10 @@ def device_sync_time(_request):
     return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d} UTC", 200, "text/plain"
 
 
-@server.route("/offline_icon", methods=["POST"])
-def device_offline_icon(request):
+@server.route("/network_status", methods=["POST"])
+def device_network_status(request):
 
-    config.offline_icon = request.form.get("value") == "true"
+    config.network_status = request.form.get("value") == "true"
     write_config()
 
     return "OK", 200
@@ -1173,7 +1173,7 @@ def reset_transition():
 async def flip(blend, slots=()):
     """Commit a frame, then wait for core1 before anything draws again. While
     not online the icon goes over the surfaces in slots, for this frame only."""
-    covered = slots if connection != ONLINE and config.offline_icon else ()
+    covered = slots if connection != ONLINE and config.network_status else ()
 
     # At full size the arcs reach 10 px either side of x1, the cross 16 px above
     # y1 and the dot 1 px below, so this centres the icon in its box, a pixel
