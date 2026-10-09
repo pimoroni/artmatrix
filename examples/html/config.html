@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Config</title>
+  <title>{{name}}</title>
   <link rel="stylesheet" href="/static/stylesheet.css">
   <link rel="manifest" href="/static/manifest.json">
   <link rel="icon" href="/static/icon-512.png">
@@ -14,7 +14,7 @@
 <hr>
 <body>
   <main class="plugin-config">
-    <h1>Plugin Settings</h1>
+    <h1>{{name}}</h1>
     {{ render_template(config_page, plugin=plugin, placeholder=placeholder) }}
     <hr>
     {{ render_template("html/reset-defaults.html", plugin=plugin) if show_reset else "" }}

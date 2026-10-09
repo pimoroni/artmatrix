@@ -775,7 +775,14 @@ def configure_plugin(request):
             return redirect(f"/config?plugin={plugin}", status=303)
 
         show_reset = configurable and not hasattr(p, "process_config")
-        return render_template("html/config.html", plugin=plugin, placeholder=p, config_page=config_page, show_reset=show_reset)
+
+        try:
+            with open(f"/lib/plugins/{plugin}/package.json") as file:
+                name = json.load(file).get("name", plugin)
+        except (OSError, ValueError):
+            name = plugin
+
+        return render_template("html/config.html", plugin=plugin, name=name, placeholder=p, config_page=config_page, show_reset=show_reset)
 
     return "404 Not Found Buddy!", 404
 
