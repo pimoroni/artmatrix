@@ -27,7 +27,7 @@ set(PV_PICO3D OFF)
 find_package(PICOVECTOR_MICROPYTHON CONFIG REQUIRED)
 
 # Build picovector for Pico
-target_compile_definitions(usermod_picovector INTERFACE TUFTY=1 PICO=1)
+target_compile_definitions(usermod_picovector INTERFACE PICO=1)
 
 # Essential
 include(pimoroni_i2c/micropython)
