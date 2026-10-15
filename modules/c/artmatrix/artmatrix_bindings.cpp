@@ -299,6 +299,11 @@ mp_obj_t artmatrix_calibrate(mp_obj_t self_in) {
     return mp_const_none;
 }
 
+mp_obj_t artmatrix_calibrated(mp_obj_t self_in) {
+    (void)self_in;
+    return mp_obj_new_bool(!artmatrix_obj.artmatrix->is_calibrating());
+}
+
 // Total panel draw allowed, in amps. Clamped to 3.0A: the load switch limits at
 // 3.3A whatever the supply can deliver.
 mp_obj_t artmatrix_set_current_limit(mp_obj_t self_in, mp_obj_t amps_in) {

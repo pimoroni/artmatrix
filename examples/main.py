@@ -30,7 +30,8 @@ try:
 except OSError:
     pass
 
-time.sleep(1)
+while not display.calibrated():
+    time.sleep_ms(10)
 
 # Holding A and C through power-on forces provisioning.
 PROVISION_BUTTONS = (Pin(BUTTON_A, Pin.IN, Pin.PULL_UP), Pin(BUTTON_C, Pin.IN, Pin.PULL_UP))
