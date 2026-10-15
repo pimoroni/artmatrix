@@ -4,6 +4,7 @@ import time
 import machine
 from phew import logging, server, redirect, serve_file, render_template, access_point
 import network
+from easing import easeInOutSine
 
 wlan = None
 
@@ -19,6 +20,34 @@ ssid_length, _ = screen.measure_text(ssid)
 
 # create the qr payload
 qr_payload = f"WIFI:S:{ssid};T:nopass;;"
+
+FADE_MS = 500
+
+previous = image(screen.width, screen.height, display.surface(1))
+previous.blit(screen, vec2(0, 0))
+
+screen.pen = color.rgb(0, 0, 0, 75)
+screen.clear()
+
+# qr() draws dark on light, so swap the palette to suit this splash.
+qr = image.qr(qr_payload, image.QR_MEDIUM, 0)
+qr.palette = [color.rgb(0, 0, 0), color.white]
+qr_size = qr.width * 3
+qr_x = (screen.width - qr_size) // 2
+screen.pen = color.rgb(0, 0, 0)
+screen.rectangle(qr_x - 4, 4, qr_size + 8, qr_size + 8)
+screen.blit(qr, rect(qr_x, 8, qr_size, qr_size))
+screen.pen = color.white
+screen.text("Connect to:", 5, screen.height - 29)
+screen.text(f"{ssid}", 5, screen.height - 16)
+
+fade_start = time.ticks_ms()
+while (elapsed := time.ticks_diff(time.ticks_ms(), fade_start)) < FADE_MS:
+    display.update(int((1 - easeInOutSine(elapsed / FADE_MS)) * 255))
+display.update()
+leds(color.rgb(160, 0, 255))
+
+del previous
 
 # put board into access point mode
 logging.info("> going into access point mode")
@@ -75,24 +104,6 @@ def write_config():
 
 
 import config   # noqa E402
-
-
-screen.pen = color.rgb(0, 0, 0, 75)
-screen.clear()
-
-# qr() draws dark on light, so swap the palette to suit this splash.
-qr = image.qr(qr_payload, image.QR_MEDIUM, 0)
-qr.palette = [color.rgb(0, 0, 0), color.white]
-qr_size = qr.width * 3
-qr_x = (screen.width - qr_size) // 2
-screen.pen = color.rgb(0, 0, 0)
-screen.rectangle(qr_x - 4, 4, qr_size + 8, qr_size + 8)
-screen.blit(qr, rect(qr_x, 8, qr_size, qr_size))
-screen.pen = color.white
-screen.text("Connect to:", 5, screen.height - 29)
-screen.text(f"{ssid}", 5, screen.height - 16)
-display.update()
-leds(color.rgb(160, 0, 255))
 
 
 @server.route("/provision-welcome", methods=["GET", "POST"])
