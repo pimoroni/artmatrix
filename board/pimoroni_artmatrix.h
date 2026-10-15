@@ -53,12 +53,21 @@ pico_board_cmake_set(PICO_PLATFORM, rp2350)
 
 // 250 MHz - Working, but not tested on enough boards to fully verify.
 // ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 250
+/*
 #define PLL_SYS_REFDIV   (1)
 #define PLL_SYS_VCO_FREQ_HZ (1500000000)
 #define PLL_SYS_POSTDIV1 (6)
 #define PLL_SYS_POSTDIV2 (1)
 #define SYS_CLK_HZ       (250000000)
 #define BW_VREG_VOLTAGE  (0b01101)  // 1.20V
+*/
+
+#define PLL_SYS_REFDIV   (1)
+#define PLL_SYS_VCO_FREQ_HZ (1380000000)
+#define PLL_SYS_POSTDIV1 (6)
+#define PLL_SYS_POSTDIV2 (1)
+#define SYS_CLK_HZ       (230000000)
+#define BW_VREG_VOLTAGE  (0b01101)
 
 // 200 MHz - Most of our testing was done at 200MHz.
 // ./build/micropython/lib/pico-sdk/src/rp2_common/hardware_clocks/scripts/vcocalc.py --cmake 200
