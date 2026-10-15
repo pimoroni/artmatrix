@@ -127,6 +127,14 @@
 
   <script type="text/javascript">
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const REQUEST_TIMEOUT_MS = 4000
+    const TEST_DEADLINE_MS = 45000
+
+    const fetchWithin = (url, options, ms) => {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), ms)
+      return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer))
+    }
 
     // spinner on the submit button for as long as the connection test runs
     const setTesting = (testing) => {
@@ -158,57 +166,45 @@
           return
         }
         const data = new FormData(event.target)
-        console.log(...data)
         setTesting(true)
-        setStatus(`Connecting to ${selectedSsid()}, this can take a few seconds.`)
-        fetch("/test-network", {
-          method: "POST",
-          body: data
-        })
-          .then((response) => { return response.text() })
-          .then(async (text) => {
+        setStatus(`Testing ${selectedSsid()}. Your phone may drop off the setup network for a moment, so keep this page open.`)
 
-            if (text == "OK") {
-              console.log("OK poll for connection...")
-            }
+        try {
+          await fetchWithin("/test-network", { method: "POST", body: data }, REQUEST_TIMEOUT_MS)
+        } catch (error) {
+          console.log("Test request", error)
+        }
 
-            let complete = false
+        const deadline = Date.now() + TEST_DEADLINE_MS
+        while (Date.now() < deadline) {
+          await sleep(1000)
+          let text
+          try {
+            const response = await fetchWithin("/wifi_test_done", {}, REQUEST_TIMEOUT_MS)
+            text = await response.text()
+          } catch (error) {
+            console.log("Poll", error)
+            continue
+          }
 
-            do {
-              await sleep(1000)
+          if (text == "OK") {
+            let button = document.getElementById("submit_button")
+            button.removeAttribute("aria-busy")
+            button.classList.add("success")
+            button.textContent = "Connected ✓"
+            setStatus("Saving settings & restarting. You can close this page and rejoin your usual WiFi.")
+            return
+          }
 
-              await fetch("/wifi_test_done")
-                .then((response) => { return response.text() })
-                .then((text) => {
-                  if (text == "OK" || text == "FAILED") {
-                    console.log("Testing finished")
-                    complete = true
-                    if (text == "OK") {
-                      console.log("CONNECTION OKAY SUBMITTING FORM")
-                      // the board restarts on POST, so this page goes away with it
-                      let button = document.getElementById("submit_button")
-                      button.removeAttribute("aria-busy")
-                      button.classList.add("success")
-                      button.textContent = "Connected ✓"
-                      setStatus("Saving settings & restarting. You can close this page and rejoin your usual WiFi.")
-                      event.target.onsubmit = null
-                      event.target.submit()
-                    } else {
-                      setTesting(false)
-                      setStatus(`Couldn't connect to ${selectedSsid()}. Check the password is right and that the network is in range, then try again.`, true)
-                    }
-                  }
-                  console.log("Testing WiFi connection")
-                })
-
-            } while (!complete)
-          })
-          .catch((error) => {
-            // a dropped request would otherwise leave the spinner up forever
-            console.log("Testing failed", error)
+          if (text == "FAILED") {
             setTesting(false)
-            setStatus("Lost contact with the Art Matrix. Check you're still joined to the \"Art Matrix Setup\" network, then try again.", true)
-          })
+            setStatus(`Couldn't connect to ${selectedSsid()}. Check the password is right and that the network is in range, then try again.`, true)
+            return
+          }
+        }
+
+        setTesting(false)
+        setStatus("Lost contact with the Art Matrix. Its screen shows how the test went: if it's back on the setup screen, rejoin \"Art Matrix Setup\" and try again.", true)
       };
     }
 
