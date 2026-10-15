@@ -1,6 +1,8 @@
 #include <cstdio>
 #include "driver/artmatrix.hpp"
 #include "pico/multicore.h"
+#include "pico/runtime.h"
+#include "hardware/timer.h"
 
 #include "micropython/modules/util.hpp"
 
@@ -97,6 +99,7 @@ void __isr __not_in_flash_func(dma_complete)() {
 }
 
 #define stack_size 8192u
+#define ARTMATRIX_STARTUP_DELAY_MS 250u
 static uint32_t core1_stack[stack_size] = {0};
 
 
@@ -374,6 +377,11 @@ mp_int_t artmatrix_get_framebuffer(mp_obj_t self_in, mp_buffer_info_t *bufinfo, 
     bufinfo->typecode = 'B';
     return 0;
 }
+
+static void artmatrix_startup_delay(void) {
+    busy_wait_ms(ARTMATRIX_STARTUP_DELAY_MS);
+}
+PICO_RUNTIME_INIT_FUNC_RUNTIME(artmatrix_startup_delay, "00800");
 
 static void __attribute__((constructor)) artmatrix_startup(void) {
     gpio_init(PIMORONI_ARTMATRIX_SW_A);
