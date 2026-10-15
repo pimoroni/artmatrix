@@ -468,9 +468,10 @@ surfaces, so a transition is one pass here rather than a pair of snapshots and a
 composite on core0.
 
 This reads the drawing surfaces directly, which is only safe because core0 is
-not drawing while it waits on the flip. Nothing else may render, so back_buffer
-only tracks the panel while the application keeps calling update() - see
-power_up(), which clears it.
+not drawing while it waits on the flip. The exception is the one repaint core1
+makes when a recalibration hands back, which reads them without a flip, so a
+frame that was drawn once comes back after power_up() clears back_buffer. Core0
+may be mid-draw then, which costs at most one torn frame.
 
 Must not be called while is_calibrating(): back_buffer holds the calibration
 grid. The caller holds the flip until calibration ends rather than

@@ -118,19 +118,33 @@ void artmatrix_core1_entry() {
 
     multicore_fifo_push_blocking(0); // TODO: handle issues here?
 
+    bool committed = false;
+    uint8_t committed_blend = 0u;
+    bool was_calibrating = false;
+
     // artmatrix runs the display from interrupts on this core, once
     // power_tick() sees a supply on VLED_SENSE and brings the panel up.
     while (!artmatrix_obj.exit_core1) {
         artmatrix_obj.artmatrix->power_tick();
 
+        const bool calibrating = artmatrix_obj.artmatrix->is_calibrating();
+
         // Hold the flip through calibration instead of dropping it: back_buffer
         // is the calibration grid, and the boot screen is drawn once and then
         // left up while the application connects to wifi.
-        if (artmatrix_obj.flip && !artmatrix_obj.artmatrix->is_calibrating()) {
-            artmatrix_obj.artmatrix->update(artmatrix_obj.blend);
+        if (artmatrix_obj.flip && !calibrating) {
+            committed_blend = artmatrix_obj.blend;
+            artmatrix_obj.artmatrix->update(committed_blend);
+            committed = true;
+            was_calibrating = false;
             artmatrix_obj.flip = false;
             continue;
         }
+
+        if (was_calibrating && !calibrating && committed) {
+            artmatrix_obj.artmatrix->update(committed_blend);
+        }
+        was_calibrating = calibrating;
 
         if (artmatrix_obj.artmatrix->is_powered()) {
             // Core0 __sev()s after setting either flag, and the display DMA IRQ
