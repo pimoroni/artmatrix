@@ -126,6 +126,7 @@ void artmatrix_core1_entry() {
     // power_tick() sees a supply on VLED_SENSE and brings the panel up.
     while (!artmatrix_obj.exit_core1) {
         artmatrix_obj.artmatrix->power_tick();
+        artmatrix_obj.artmatrix->led_tick();
 
         const bool calibrating = artmatrix_obj.artmatrix->is_calibrating();
 
@@ -157,6 +158,7 @@ void artmatrix_core1_entry() {
     }
 
     artmatrix_obj.artmatrix->power_down();
+    artmatrix_obj.artmatrix->leds_off();
 
     multicore_lockout_victim_deinit();
 
@@ -193,9 +195,6 @@ void artmatrix_core1_stop() {
     uint32_t fifo_code;
     do {
         while (!multicore_fifo_pop_timeout_us(1000, &fifo_code)) __sev();
-        if (fifo_code == 1) {
-            // TODO: LED cleanup here
-        }
     } while (fifo_code != 0);
 
     artmatrix_debug("core1 returned\n");
@@ -273,6 +272,14 @@ mp_obj_t artmatrix_set_hold(mp_obj_t self_in, mp_obj_t hold_in) {
 mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in) {
     (void)self_in;
     artmatrix_obj.artmatrix->set_brightness((float)mp_obj_get_float(value_in));
+    return mp_const_none;
+}
+
+// display.set_ambient(False) to turn the LEDs off. They are on from boot, lit by
+// core1 from the top of each frame, and this is the only control Python gets.
+mp_obj_t artmatrix_set_ambient(mp_obj_t self_in, mp_obj_t on_in) {
+    (void)self_in;
+    artmatrix_obj.artmatrix->set_ambient(mp_obj_is_true(on_in));
     return mp_const_none;
 }
 

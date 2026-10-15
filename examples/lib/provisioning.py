@@ -45,7 +45,6 @@ fade_start = time.ticks_ms()
 while (elapsed := time.ticks_diff(time.ticks_ms(), fade_start)) < FADE_MS:
     display.update(int((1 - easeInOutSine(elapsed / FADE_MS)) * 255))
 display.update()
-leds(color.rgb(160, 0, 255))
 
 del previous
 
@@ -118,7 +117,6 @@ def provision_welcome(request):
             config.wifi_hostname = hostname
             config.provisioned = True
             write_config()
-            leds.clear()
             machine.reset()
     return render_template("html/provision-wifi.html")
 

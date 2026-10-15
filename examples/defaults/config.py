@@ -25,3 +25,6 @@ brightness = 100
 
 # show an icon in the corner of the plugins when internet access or the network connection is lost
 network_status = True
+
+# light the leds with the colours along the top of the display
+ambient_leds = True

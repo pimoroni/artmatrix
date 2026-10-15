@@ -3,7 +3,6 @@ import time
 
 def run():
     SPACING = 7
-    LED_SCALE = 0.6
 
     WIDTH = screen.width
     HEIGHT = screen.height
@@ -11,7 +10,6 @@ def run():
 
     am_logo = image.load("/assets/artmatrix_logo.png")
 
-    led_pos = [(x / WIDTH, (x * 2) % 255) for x in range(WIDTH // 8, WIDTH, WIDTH // 4)]
     dot_pos = [(x * SPACING, y * SPACING, (x * SPACING) / WIDTH, ((x * SPACING) * 2) % 255) for x in range((WIDTH - 1) // SPACING) for y in range((HEIGHT - 1) // SPACING)]
     crisp = image(WIDTH, HEIGHT)
     last_frame = time.ticks_ms()
@@ -36,8 +34,6 @@ def run():
             screen.pen = color.hsv(hue, int(255 - dot_lit * 160), int(max(0.4, dot_lit) * 255))
             screen.rectangle(x + 2, y + 2, 5, 5)
 
-        leds(*[color.hsv(hue, 255, int(max(0.4 * LED_SCALE, 1 - abs(sweep - unit) * 8) * 255)) for unit, hue in led_pos])
-
         blur_in = min(1.0, frame / BLUR)
         if blur_in < 1.0:
             crisp.blit(screen, vec2(0, 0))
@@ -56,7 +52,6 @@ def run():
 
         display.update()
 
-    leds.clear()
     result = image(screen.width, screen.height)
     result.blit(screen, vec2(0, 0))
     return result

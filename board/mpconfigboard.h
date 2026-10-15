@@ -40,5 +40,3 @@ int mp_hal_is_pin_reserved(int n);
 #define MICROPY_GC_SPLIT_HEAP                   (0)
 
 #define MICROPY_PY_THREAD                       (0)
-
-#define PLASMA_DATA_PIN                         (PICO_DEFAULT_WS2812_PIN)

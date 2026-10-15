@@ -275,6 +275,20 @@ enum CalibratePhase {
     CALIBRATE_MEASURE
 };
 
+// Ambient LEDs: four WS2812s lit from the top AMBIENT_ROWS of the frame, split
+// into LED_COUNT zones left to right. Pixels with every channel at or below
+// AMBIENT_BLACK are left out of a zone's average, so a shape on black lights
+// its LED in its own colour rather than a dim smear of it.
+const uint LED_COUNT = 4;
+const uint32_t AMBIENT_ROWS = 32;
+const uint32_t AMBIENT_BLACK = 16;
+
+// 60Hz, far longer than the 120us shift-out plus the 280us latch.
+const uint32_t LED_PERIOD_US = 16667;
+
+// LED light at full panel brightness. WS2812s at full drive are glaring.
+const float AMBIENT_SCALE = 0.6f;
+
 class ArtMatrix {
     public:
 
@@ -343,6 +357,7 @@ class ArtMatrix {
     volatile float brightness_target = 1.0f; // written by core0
     volatile bool force_light = false;       // written by core0
     volatile bool recalibrate_request = false; // written by core0
+    volatile bool ambient = true;            // written by core0
     float brightness_ceiling = 0.0f;         // core1, LIGHT an all-white screen may have
     float ceiling_derate = 1.0f;             // core1, what the trips have taken off it
     float brightness_allowed = 0.0f;         // core1, LIGHT the supply will hold
@@ -392,6 +407,14 @@ class ArtMatrix {
 
     uint data_prog_offs_b = 0;
     uint row_prog_offs_b = 0;
+
+    // Ambient LEDs, on whichever PIO had room. Core1 only.
+    PIO led_pio = nullptr;
+    uint led_sm = 0;
+    uint led_prog_offs = 0;
+    uint32_t led_sent_us = 0;
+
+    void send_leds(const uint32_t grb[LED_COUNT]);
 
     // Owned by the DMA IRQ; latched from brightness_next at the frame boundary
     // so a frame never mixes bitplane weights.
@@ -443,6 +466,9 @@ class ArtMatrix {
     bool is_calibrating(void);
 
     void set_brightness(float value);
+    void set_ambient(bool on);
+    void led_tick(void);
+    void leds_off(void);
     void set_current_limit(float amps);
     void set_force_on(bool force);
     void recalibrate(void);

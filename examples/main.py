@@ -219,6 +219,7 @@ modules = []
 # global brightness and setting
 brightness = int(config.brightness)
 display.set_brightness(config.brightness / 100)
+display.set_ambient(config.ambient_leds)
 
 # Per-plugin image state, and which plugin currently occupies each surface
 plugin_state = {}
@@ -604,6 +605,16 @@ def device_network_status(request):
 
     config.network_status = request.form.get("value") == "true"
     write_config()
+
+    return "OK", 200
+
+
+@server.route("/ambient_leds", methods=["POST"])
+def device_ambient_leds(request):
+
+    config.ambient_leds = request.form.get("value") == "true"
+    write_config()
+    display.set_ambient(config.ambient_leds)
 
     return "OK", 200
 
@@ -1327,8 +1338,6 @@ async def draw():
 
         await asyncio.sleep_ms(10)
 
-leds(color.rgb(255, 120, 0))
-
 screen.blit(static_splash, vec2(0, 0))
 draw_wifi_icon(screen, screen.width / 2, 23, False, "Connecting")
 display.update()
@@ -1340,8 +1349,6 @@ if wait_for_wifi(time.ticks_add(time.ticks_ms(), WIFI_DEADLINE * 1000)):
     connection = ONLINE if sync_time() is None else NO_INTERNET
 
 print("connection:", CONNECTION_NAMES[connection])
-
-leds(color.rgb(0, 255, 0) if wifi.is_connected() else color.rgb(255, 0, 0))
 
 
 try:
@@ -1365,9 +1372,6 @@ draw_wifi_icon(screen, screen.width / 2, 23, wifi.is_connected(), "Connecting")
 if sd_present:
     screen.blit(sd_logo, 5, 5)
 display.update()
-
-# from here the corner icon shows the connection
-leds.clear()
 
 del sd_logo
 

@@ -89,6 +89,12 @@
     </div>
     <hr>
     <div>
+      <label for="ambient_leds">Ambient LEDs</label>
+      <small>Light the LEDs with the colours along the top of the display.</small>
+      <input type="checkbox" role="switch" id="ambient_leds" data-value="{{config.ambient_leds}}">
+    </div>
+    <hr>
+    <div>
       <label>Firmware</label>
       <small>{{version}}</small>
       <small><a href="https://github.com/pimoroni/artmatrix/releases" target="_blank" rel="noopener">Latest releases on GitHub</a></small>
@@ -174,6 +180,17 @@
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: `value=${network_status.checked}`
+      });
+    });
+
+    const ambient_leds = document.getElementById("ambient_leds");
+    ambient_leds.checked = ambient_leds.dataset.value === "True";
+
+    ambient_leds.addEventListener("change", () => {
+      fetch("/ambient_leds", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${ambient_leds.checked}`
       });
     });
 

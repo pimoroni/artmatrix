@@ -5,7 +5,6 @@ import board
 
 import _artmatrix
 import picovector
-from plasma import WS2812
 
 
 builtins.BUTTON_A = board.SW_A
@@ -38,31 +37,6 @@ class _Sensor:
 
 builtins.sensor = _Sensor()
 
-
-# LED control
-class LEDS:
-    def __init__(self):
-        self._leds = WS2812(4)
-        self._leds.start()
-
-    def _to_rgb(self, i):
-        if isinstance(i, color):
-            i = i.p & 0xffffffff
-            return (i >> 0) & 0xff, (i >> 8) & 0xff, (i >> 16) & 0xff
-        if isinstance(i, tuple):
-            return i
-        return i, i, i
-
-    def __call__(self, *args):
-        args = (args[0], ) * 4 if len(args) == 1 else args
-        for i in range(4):
-            self._leds.set_rgb(3 - i, *self._to_rgb(args[i]))
-
-    def clear(self):
-        self(0)
-
-
-builtins.leds = LEDS()
 
 # Import modules
 __import__(".frozen/artmatrix/math")

@@ -18,6 +18,11 @@ static uint32_t __attribute__ ((aligned (4))) second_buffer[width * height];
 // buffer the bindings reserve for it.
 static uint16_t __attribute__ ((aligned (4))) adc_buffer[ADC_SAMPLES];
 
+// Ambient LEDs, both core1 only. update() writes each frame's zone averages,
+// led_tick() smooths them into the accumulators.
+static uint32_t ambient_avg[LED_COUNT][3];
+static uint32_t ambient_acc[LED_COUNT][3];
+
 /*
 What calibration measured, kept out of the class so it survives a MicroPython
 soft reset. That reconstructs ArtMatrix, which would otherwise walk the panel
@@ -251,8 +256,8 @@ ArtMatrix::~ArtMatrix() {
 // reports a supply, and takes it back down to hi-z if that supply goes.
 //
 // The hardware is claimed here rather than in start(), though. start() may not
-// run until a supply appears, by which time Python has imported plasma and
-// picovector and they have taken the state machines we wanted - claiming late
+// run until a supply appears, by which time Python has imported picovector and
+// brought up cyw43, and they have taken the state machines we wanted - claiming late
 // panics with "PIO 2 SM already claimed" on the first hot-plug.
 void ArtMatrix::begin(irq_handler_t handler) {
     irq_handler = handler;
@@ -270,6 +275,14 @@ void ArtMatrix::begin(irq_handler_t handler) {
     data_prog_offs_b = pio_add_program(pio_b, &artmatrix_data_rgb888_program);
     row_prog_offs_a = pio_add_program(pio_a, &artmatrix_row_program);
     row_prog_offs_b = pio_add_program(pio_b, &artmatrix_row_program);
+
+    // After the panel's programs, so this only takes what they left. Any PIO
+    // will do: GPIO16 is inside both gpio bases.
+    if(!pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_program, &led_pio, &led_sm, &led_prog_offs, PICO_DEFAULT_WS2812_PIN, 1, true)) {
+        panic("ArtMatrix: no PIO state machine for the LEDs");
+    }
+    ws2812_program_init(led_pio, led_sm, led_prog_offs, PICO_DEFAULT_WS2812_PIN, 800000.0f);
+    leds_off();
 
     dma_channel_a1 = dma_claim_unused_channel(true);
     dma_channel_a2 = dma_claim_unused_channel(true);
@@ -303,6 +316,11 @@ void ArtMatrix::release(void) {
     pio_sm_unclaim(pio_b, sm_data_b1);
     pio_sm_unclaim(pio_b, sm_data_b2);
     pio_sm_unclaim(pio_b, sm_row_b);
+
+    // Core1 sent black on its way out, so the LEDs are already dark.
+    pio_sm_set_enabled(led_pio, led_sm, false);
+    pio_remove_program_and_unclaim_sm(&ws2812_program, led_pio, led_sm, led_prog_offs);
+    led_pio = nullptr;
 }
 
 void ArtMatrix::get_power_stats(uint32_t counts[7], float headroom[7]) {
@@ -487,6 +505,45 @@ void __noinline __not_in_flash("ArtMatrix_update") ArtMatrix::update(uint8_t ble
         render<false>(second_buffer, nullptr, 0u, panel_b_offset);
     } else {
         render<true>(front_buffer, second_buffer, blend, panel_b_offset);
+    }
+
+    if(!ambient) return;
+
+    // The top rows of the same frame the render just took, so a fade moves the
+    // LEDs with it. led_tick() picks the averages up on its next pass.
+    const uint32_t *src = blend == 255u ? second_buffer : front_buffer;
+    for(uint zone = 0u; zone < LED_COUNT; zone++) {
+        uint32_t r = 0u, g = 0u, b = 0u, lit = 0u;
+        for(uint32_t y = 0u; y < AMBIENT_ROWS; y++) {
+            const uint32_t start = y * width + zone * (width / LED_COUNT);
+            for(uint32_t i = start; i < start + width / LED_COUNT; i++) {
+                const uint32_t p = (blend == 0u || blend == 255u) ? src[i] : lerp8888(front_buffer[i], second_buffer[i], blend);
+                const uint32_t pr = p & 0xff;
+                const uint32_t pg = (p >> 8) & 0xff;
+                const uint32_t pb = (p >> 16) & 0xff;
+                if(pr <= AMBIENT_BLACK && pg <= AMBIENT_BLACK && pb <= AMBIENT_BLACK) continue;
+                r += pr;
+                g += pg;
+                b += pb;
+                lit++;
+            }
+        }
+        // An all-black zone has nothing to average, and stays dark.
+        if(!lit) {
+            ambient_avg[zone][0] = ambient_avg[zone][1] = ambient_avg[zone][2] = 0u;
+            continue;
+        }
+
+        // Keep the hue, drop how dark it is: the brightest channel goes to
+        // full, so a dim scene still throws a strong glow. How bright the LEDs
+        // are is left to the panel brightness in led_tick().
+        r /= lit;
+        g /= lit;
+        b /= lit;
+        const uint32_t peak = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        ambient_avg[zone][0] = peak ? r * 255u / peak : 0u;
+        ambient_avg[zone][1] = peak ? g * 255u / peak : 0u;
+        ambient_avg[zone][2] = peak ? b * 255u / peak : 0u;
     }
 }
 
@@ -733,6 +790,65 @@ void ArtMatrix::set_brightness(float value) {
     if(value < 0.0f) value = 0.0f;
     if(value > 1.0f) value = 1.0f;
     brightness_target = value;
+}
+
+// Any core. Core1 sends black from its next tick while this is off.
+void ArtMatrix::set_ambient(bool on) {
+    ambient = on;
+}
+
+// Core1. One word per LED, in chain order. The FIFO is joined to 8 deep, so
+// four words never stall.
+void ArtMatrix::send_leds(const uint32_t grb[LED_COUNT]) {
+    for(uint i = 0u; i < LED_COUNT; i++) pio_sm_put(led_pio, led_sm, grb[i]);
+}
+
+// Core1. Black, and wait for it to latch: nothing will refresh the LEDs after
+// this when core1 is on its way out. A tick may have just sent, and black
+// queued straight behind it would be passed down the chain instead of latched,
+// so let that land first.
+void ArtMatrix::leds_off(void) {
+    const uint32_t off[LED_COUNT] = {0u};
+    for(uint pass = 0u; pass < 2u; pass++) {
+        while(!pio_sm_is_tx_fifo_empty(led_pio, led_sm)) tight_loop_contents();
+        // The last word still shifting out (30us), then the 280us latch.
+        sleep_us(350);
+        if(pass == 0u) send_leds(off);
+    }
+}
+
+// Core1, from the main loop. Sends on a steady clock whether or not frames
+// arrive, so the smoothing settles on a still frame and a brightness change
+// shows straight away.
+void ArtMatrix::led_tick(void) {
+    const uint32_t now = time_us_32();
+    if(now - led_sent_us < LED_PERIOD_US) return;
+    led_sent_us = now;
+
+    // Follow the light the panel is actually given, not the target, so the
+    // LEDs share its supply cap and go dark with it (brightness_applied is -1
+    // while unpowered). 1.10 fixed point, like apply_gamma_scale().
+    const float light = brightness_applied > 0.0f ? brightness_applied : 0.0f;
+    const uint32_t scale = ambient ? (uint32_t)(light * AMBIENT_SCALE * 1024.0f) : 0u;
+
+    uint32_t grb[LED_COUNT];
+    for(uint zone = 0u; zone < LED_COUNT; zone++) {
+        uint32_t c[3];
+        for(uint ch = 0u; ch < 3u; ch++) {
+            // Smoothing: close a quarter of the gap each tick. It settles at
+            // 4x the average, hence the shift by 2.
+            const uint32_t acc = ambient_avg[zone][ch] + ((ambient_acc[zone][ch] * 3u) >> 2);
+            ambient_acc[zone][ch] = acc;
+            const uint32_t avg = acc >> 2;
+
+            // 14-bit linear light times 1.10 scale, down to 8 bits.
+            c[ch] = (GAMMA_14BIT[avg] * scale) >> 16;
+        }
+        // The chain starts at the right-hand LED.
+        grb[LED_COUNT - 1u - zone] = (c[1] << 24) | (c[0] << 16) | (c[2] << 8);
+    }
+
+    send_leds(grb);
 }
 
 void ArtMatrix::adc_capture_start(void) {

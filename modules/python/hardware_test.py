@@ -317,13 +317,18 @@ class Tests:
                 changed = True
         return changed
 
-    def walk_leds(self):
-        if time.ticks_diff(time.ticks_ms(), self.led_at) > LED_WALK_MS:
+    def walk_leds(self, redraw=False):
+        due = time.ticks_diff(time.ticks_ms(), self.led_at) > LED_WALK_MS
+        if due:
             self.led_at = time.ticks_ms()
             self.led = (self.led + 1) % (4 * len(LED_COLOURS))
+        if due or redraw:
             lit = self.led % 4
             pen = LED_COLOURS[self.led // 4]
-            leds(*[pen if i == lit else BLACK for i in range(4)])
+            for i in range(4):
+                screen.pen = pen if i == lit else BLACK
+                screen.rectangle(i * (WIDTH // 4), 0, WIDTH // 4, 8)
+            display.update()
 
     def show_patterns(self):
         for phase, duration in PATTERN_PHASES:
@@ -331,7 +336,6 @@ class Tests:
             start = time.ticks_ms()
             while time.ticks_diff(time.ticks_ms(), start) < duration:
                 self.poll_buttons()
-                self.walk_leds()
                 time.sleep_ms(10)
 
     def test_operator(self):
@@ -357,12 +361,12 @@ class Tests:
 
             if self.poll_buttons():
                 self.draw_prompt()
-
-            self.walk_leds()
+                self.walk_leds(True)
+            else:
+                self.walk_leds()
             time.sleep_ms(10)
 
         self.draw_prompt()
-        leds.clear()
         print("BUTTONS: OK!")
 
     def clear_flag(self):
@@ -401,10 +405,11 @@ class Tests:
             count = 0
 
         for _ in range(count):
-            leds(RED)
+            display.set_ambient(True)
             time.sleep_ms(250)
-            leds.clear()
+            display.set_ambient(False)
             time.sleep_ms(250)
+        display.set_ambient(True)
         time.sleep(2)
 
     def show_pass(self):
@@ -413,7 +418,6 @@ class Tests:
         screen.pen = WHITE
         self.centred("PASS", 3)
         display.update()
-        leds(GREEN)
 
     def run(self):
         try:
@@ -437,7 +441,6 @@ class Tests:
 
         except Exception as e:  # noqa: BLE001
             print(e)
-            leds.clear()
             while True:
                 self.display_error(e)
 
