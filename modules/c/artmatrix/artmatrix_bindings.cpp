@@ -121,8 +121,8 @@ void artmatrix_core1_entry() {
         artmatrix_obj.artmatrix->power_tick();
 
         // Hold the flip through calibration instead of dropping it: back_buffer
-        // is the white frame being measured, and the boot screen is drawn once
-        // and then left up while the application connects to wifi.
+        // is the calibration grid, and the boot screen is drawn once and then
+        // left up while the application connects to wifi.
         if (artmatrix_obj.flip && !artmatrix_obj.artmatrix->is_calibrating()) {
             artmatrix_obj.artmatrix->update(artmatrix_obj.blend);
             artmatrix_obj.flip = false;
@@ -287,8 +287,8 @@ mp_obj_t artmatrix_force_on(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-// display.calibrate() to discard the stored measurement and walk the panel
-// through white again. Otherwise a calibration survives soft reset, so running a
+// display.calibrate() to discard the stored measurement and light the
+// calibration grid again. Otherwise a calibration survives soft reset, so running a
 // script does not flash the display every time.
 mp_obj_t artmatrix_calibrate(mp_obj_t self_in) {
     (void)self_in;

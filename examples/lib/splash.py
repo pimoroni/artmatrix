@@ -13,10 +13,12 @@ def run():
 
     led_pos = [(x / WIDTH, (x * 2) % 255) for x in range(WIDTH // 8, WIDTH, WIDTH // 4)]
     dot_pos = [(x * SPACING, y * SPACING, (x * SPACING) / WIDTH, ((x * SPACING) * 2) % 255) for x in range((WIDTH - 1) // SPACING) for y in range((HEIGHT - 1) // SPACING)]
+    crisp = image(WIDTH, HEIGHT)
     last_frame = time.ticks_ms()
     frame = 0
 
     FADE = 1.0
+    BLUR = 0.6
 
     while frame < FADE + 1.7:
         screen.pen = color.rgb(0, 0, 0)
@@ -36,7 +38,17 @@ def run():
 
         leds(*[color.hsv(hue, 255, int(max(0.4 * LED_SCALE, 1 - abs(sweep - unit) * 8) * 255)) for unit, hue in led_pos])
 
+        blur_in = min(1.0, frame / BLUR)
+        if blur_in < 1.0:
+            crisp.blit(screen, vec2(0, 0))
+
         screen.blur(0.1)
+
+        if blur_in < 1.0:
+            screen.alpha = int((1.0 - blur_in) * 255)
+            screen.blit(crisp, vec2(0, 0))
+            screen.alpha = 255
+
         logo_alpha = min(1.0, frame / FADE)
         screen.alpha = int(logo_alpha * 160)
         screen.blit(am_logo, rect(32, 32, 64, 64))

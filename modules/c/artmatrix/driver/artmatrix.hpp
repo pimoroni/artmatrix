@@ -50,17 +50,25 @@ regulates. The trip is unaffected - it runs on every capture.
 const uint POWER_AVERAGE_CAPTURES = 8;
 
 /*
-Calibration walks a real all-white screen up from black until the supply says
-stop, so the brightness ceiling is measured on whatever is plugged in. Nothing
-is extrapolated from the picture, and nothing about the picture can move it
-afterwards.
-
-Light units per averaged tick, so a typical supply stops in eight or so steps.
-The step only sets how far past the budget the walk may overshoot before it
-stops: the gain is measured wherever it lands, and the ceiling comes from the
-gain rather than from the stopping light.
+Calibration lights splash.py's grid of squares in white, a column at a time from
+the left, until the grid is full or the supply says stop. The gain is taken per
+unit of all-white light from the lit fraction, so the ceiling is still that of an
+all-white screen, extrapolated from the grid's share of it. The squares are then
+tinted to the colours splash.py starts from.
 */
-constexpr float CALIBRATE_STEP = 0.04f;
+constexpr float CALIBRATE_LIGHT = 0.5f;
+const uint CALIBRATE_SQUARES_PER_CAPTURE = 2;
+constexpr float CALIBRATE_PRESENT_STEP = 0.01f;
+const uint CALIBRATE_TINT_CAPTURES = 100;
+
+const uint GRID_SIZE = 18;
+const uint GRID_PITCH = 7;
+const uint GRID_INSET = 2;
+const uint GRID_SQUARE = 5;
+const uint GRID_SQUARES = GRID_SIZE * GRID_SIZE;
+const uint GRID_HUE_PER_PIXEL = 2;
+const uint GRID_SATURATION = 255;
+const uint GRID_VALUE = 102;
 
 // Averaged ticks to discard after each step, so that what the next one measures
 // is entirely the panel at its new drive rather than its approach to it.
@@ -261,6 +269,12 @@ struct Pixel {
 const uint32_t width = 128;
 const uint32_t height = 128;
 
+enum CalibratePhase {
+    CALIBRATE_OPEN,
+    CALIBRATE_FILL,
+    CALIBRATE_MEASURE
+};
+
 class ArtMatrix {
     public:
 
@@ -282,20 +296,26 @@ class ArtMatrix {
     uint32_t cur_idle_counts = 0;            // core1, panel draw with LEDs off
     volatile uint32_t cur_budget_counts = CUR_BUDGET_COUNTS; // written by core0
 
-    // Core1. While set, back_buffer holds the calibration frame and update()
-    // leaves it alone.
+    // Core1. While either is set, back_buffer holds the calibration grid and
+    // update() leaves it alone.
     bool calibrating = false;
+    bool presenting = false;
+    CalibratePhase calibrate_phase = CALIBRATE_OPEN;
     uint calibrate_dwell = 0;
+    uint grid_lit = 0;
+    uint grid_tint = 0;
     uint over_budget_count = 0;
 
     // A run of captures, averaged before the loop regulates on it. See
     // POWER_AVERAGE_CAPTURES.
     float calibrate_led_sum = 0.0f;
     float calibrate_sag_sum = 0.0f;
+    float calibrate_light_sum = 0.0f;
     uint calibrate_measured = 0;
 
     float accum_cur = 0.0f;
     float accum_vled = 0.0f;
+    float accum_light = 0.0f;
     uint accum_count = 0;
     uint32_t accum_vled_min = 4095;
     uint32_t accum_cur_peak = 0;
@@ -304,6 +324,7 @@ class ArtMatrix {
     // has nothing fresher to reach for.
     float last_led = 0.0f;
     float last_sag = 0.0f;
+    float last_light = 0.0f;
     float last_led_budget = 0.0f;
     float last_sag_budget = 0.0f;
 
@@ -337,8 +358,14 @@ class ArtMatrix {
     void update_ceiling(float led_budget, float sag_budget);
     void apply_target(void);
     void store_calibration(void);
+    void start_calibration(void);
     void finish_calibration(float led_budget, float sag_budget);
+    void present_step(void);
     void fill_back_buffer(uint32_t packed);
+    void grid_draw_square(uint index, uint32_t rgb);
+    void grid_light(uint count);
+    void grid_repaint(void);
+    float grid_coverage(void);
 
     // DMA & PIO
     int dma_channel_a1 = -1;

@@ -312,7 +312,7 @@ void ArtMatrix::get_power_stats(uint32_t counts[7], float headroom[7]) {
     counts[3] = last_cur;         // what the budget is measured against
     counts[4] = last_cur_peak;    // what the load switch limits on
     counts[5] = cur_idle_counts;
-    counts[6] = calibrating ? 1u : 0u;
+    counts[6] = is_calibrating() ? 1u : 0u;
 
     headroom[0] = last_headroom_v;
     headroom[1] = last_headroom_i;
@@ -334,10 +334,10 @@ bool ArtMatrix::is_powered(void) {
     return panel_powered;
 }
 
-// While set, back_buffer holds the frame calibration is measuring and update()
-// must leave it alone.
+// While set, back_buffer holds the calibration grid and update() must leave it
+// alone.
 bool ArtMatrix::is_calibrating(void) {
-    return calibrating;
+    return calibrating || presenting;
 }
 
 void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
@@ -472,8 +472,8 @@ not drawing while it waits on the flip. Nothing else may render, so back_buffer
 only tracks the panel while the application keeps calling update() - see
 power_up(), which clears it.
 
-Must not be called while is_calibrating(): back_buffer holds the white frame
-being measured. The caller holds the flip until calibration ends rather than
+Must not be called while is_calibrating(): back_buffer holds the calibration
+grid. The caller holds the flip until calibration ends rather than
 dropping it, so the first thing drawn at boot still reaches the panel.
 */
 // Section named by hand: __no_inline_not_in_flash_func stringifies its argument
@@ -505,12 +505,72 @@ void ArtMatrix::fill_back_buffer(uint32_t packed) {
     for(uint32_t i = 0u; i < width * height; i++) back_buffer[i] = packed;
 }
 
-// White through the gamma table as it currently stands, so calibration has to
-// rewrite it whenever the scale moves. The dither is dropped: every pixel is
-// the same value, and there is nothing for it to resolve.
-static inline uint32_t packed_white(void) {
-    const uint32_t c = (uint32_t)gamma_lut[255] >> 4;
-    return c | (c << 10) | (c << 20);
+static uint32_t hsv_to_rgb(uint32_t h, uint32_t s, uint32_t v) {
+    const int hs = h * 6;
+    const int region = hs >> 8;
+    const int remainder = hs & 0xff;
+
+    const uint32_t p = (v * (255 - s)) / 255;
+    const uint32_t q = (v * (255 - (s * remainder) / 255)) / 255;
+    const uint32_t t = (v * (255 - (s * (255 - remainder)) / 255)) / 255;
+
+    uint32_t r, g, b;
+    switch(region) {
+        case 0:  r = v; g = t; b = p; break;
+        case 1:  r = q; g = v; b = p; break;
+        case 2:  r = p; g = v; b = t; break;
+        case 3:  r = p; g = q; b = v; break;
+        case 4:  r = t; g = p; b = v; break;
+        default: r = v; g = p; b = q; break;
+    }
+
+    return r | (g << 8) | (b << 16);
+}
+
+static uint32_t grid_color(uint column, uint tint) {
+    const uint32_t hue = (column * GRID_PITCH * GRID_HUE_PER_PIXEL) % 255;
+    const uint32_t target = hsv_to_rgb(hue, GRID_SATURATION, GRID_VALUE);
+
+    const float t = (float)tint / (float)CALIBRATE_TINT_CAPTURES;
+    const float eased = t * t * (3.0f - 2.0f * t);
+
+    uint32_t rgb = 0;
+    for(uint shift = 0u; shift < 24u; shift += 8u) {
+        const float channel = (float)((target >> shift) & 0xff);
+        rgb |= (uint32_t)(255.0f + (channel - 255.0f) * eased + 0.5f) << shift;
+    }
+    return rgb;
+}
+
+void ArtMatrix::grid_draw_square(uint index, uint32_t rgb) {
+    const uint32_t x0 = (index / GRID_SIZE) * GRID_PITCH + GRID_INSET;
+    const uint32_t y0 = (index % GRID_SIZE) * GRID_PITCH + GRID_INSET;
+
+    for(uint32_t y = y0; y < y0 + GRID_SQUARE; y++) {
+        const uint32_t sx = height - 1 - y;
+        const uint8_t *dither = &BAYER_4X4[(y & 3) << 2];
+        for(uint32_t x = x0; x < x0 + GRID_SQUARE; x++) {
+            const uint32_t column = x < width / 2 ? panel_b_offset + x * width : (x - width / 2) * width;
+            back_buffer[column + sx] = gamma_pack(rgb, dither[x & 3]);
+        }
+    }
+}
+
+void ArtMatrix::grid_light(uint count) {
+    while(count-- && grid_lit < GRID_SQUARES) {
+        grid_draw_square(grid_lit, grid_color(grid_lit / GRID_SIZE, grid_tint));
+        grid_lit++;
+    }
+}
+
+void ArtMatrix::grid_repaint(void) {
+    for(uint i = 0u; i < grid_lit; i++) {
+        grid_draw_square(i, grid_color(i / GRID_SIZE, grid_tint));
+    }
+}
+
+float ArtMatrix::grid_coverage(void) {
+    return (float)(grid_lit * GRID_SQUARE * GRID_SQUARE) / (float)(width * height);
 }
 
 // Perceptual 0.0 - 1.0 to a fraction of full light. Equal steps of the input
@@ -553,7 +613,7 @@ void ArtMatrix::apply_brightness(float light) {
 
 /*
 Solve each measured white gain for the light it permits and take the lower. The
-gains come from a real all-white screen, so this is what a fully lit panel may
+gains are per unit of all-white light, so this is what a fully lit panel may
 have, and every picture is below it by construction. A gain of zero means
 calibration never reached that limit, so it permits everything.
 
@@ -583,15 +643,50 @@ void ArtMatrix::store_calibration(void) {
     calibration_valid = true;
 }
 
-// Leave the calibration state and put the panel back in the application's hands.
+void ArtMatrix::start_calibration(void) {
+    fill_back_buffer(0);
+    grid_lit = 0;
+    grid_tint = 0;
+
+    presenting = false;
+    calibrating = true;
+    calibrate_phase = CALIBRATE_OPEN;
+    calibrate_dwell = CALIBRATE_OPEN_DWELL;
+    calibrate_led_sum = 0.0f;
+    calibrate_sag_sum = 0.0f;
+    calibrate_light_sum = 0.0f;
+    calibrate_measured = 0;
+}
+
 void ArtMatrix::finish_calibration(float led_budget, float sag_budget) {
     calibrating = false;
 
-    // Back to black. Only update() writes back_buffer from here.
-    fill_back_buffer(0);
-
     update_ceiling(led_budget, sag_budget);
-    brightness_allowed = brightness_ceiling;
+
+    if(grid_lit) {
+        presenting = true;
+    } else {
+        brightness_allowed = brightness_ceiling;
+    }
+}
+
+void ArtMatrix::present_step(void) {
+    grid_light(CALIBRATE_SQUARES_PER_CAPTURE);
+
+    const bool settled = grid_lit >= GRID_SQUARES && brightness_allowed == brightness_ceiling;
+
+    if(settled && grid_tint < CALIBRATE_TINT_CAPTURES) {
+        grid_tint++;
+        grid_repaint();
+    } else if(settled) {
+        presenting = false;
+    } else if(brightness_allowed < brightness_ceiling) {
+        brightness_allowed += CALIBRATE_PRESENT_STEP;
+        if(brightness_allowed > brightness_ceiling) brightness_allowed = brightness_ceiling;
+    } else if(brightness_allowed > brightness_ceiling) {
+        brightness_allowed -= CALIBRATE_PRESENT_STEP;
+        if(brightness_allowed < brightness_ceiling) brightness_allowed = brightness_ceiling;
+    }
 }
 
 /*
@@ -609,7 +704,7 @@ void ArtMatrix::set_force_on(bool force) {
 
 /*
 Any core. Throw away the stored calibration and measure the panel again, which
-means another walk through white. For a supply or panel swapped while powered,
+means lighting the grid again. For a supply or panel swapped while powered,
 where nothing has told us the world changed.
 
 The flag is picked up by core1 rather than acted on here: power_tick() owns
@@ -682,22 +777,20 @@ void ArtMatrix::power_up(void) {
 
     // Hold at black for the first stretch either way: the open-circuit rail and
     // the panel's idle draw belong to this power-up, and everything below is
-    // measured against them. Only the white walk is skipped when a previous
+    // measured against them. Only the grid is skipped when a previous
     // calibration on this supply is still good.
-    calibrating = true;
-    calibrate_dwell = CALIBRATE_OPEN_DWELL;
-    calibrate_led_sum = 0.0f;
-    calibrate_sag_sum = 0.0f;
-    calibrate_measured = 0;
+    start_calibration();
     over_budget_count = 0;
 
     accum_cur = 0.0f;
     accum_vled = 0.0f;
+    accum_light = 0.0f;
     accum_count = 0;
     accum_vled_min = 4095;
     accum_cur_peak = 0;
     last_led = 0.0f;
     last_sag = 0.0f;
+    last_light = 0.0f;
     last_led_budget = 0.0f;
     last_sag_budget = 0.0f;
 
@@ -722,6 +815,7 @@ void ArtMatrix::power_down(void) {
     vled_open_counts = 0;
     vled_open_min_counts = 0;
     calibrating = false;
+    presenting = false;
     blank = true;
     panel_powered = false;
 }
@@ -746,9 +840,9 @@ void ArtMatrix::apply_target(void) {
 
         // The OEn multiplier lands on the next row, but the gamma scale reaches
         // the panel through back_buffer, so it only shows once something writes
-        // that again. Calibration owns the buffer and must repack its white at
+        // that again. Calibration owns the buffer and must repack its grid at
         // the new scale; otherwise it is the application's next update().
-        if(calibrating) fill_back_buffer(packed_white());
+        if(calibrating || presenting) grid_repaint();
     }
 }
 
@@ -824,14 +918,11 @@ void ArtMatrix::power_tick(void) {
             brightness_ceiling = 0.0f;
             brightness_allowed = 0.0f;
             over_budget_count = 0;
-            calibrating = true;
-            calibrate_dwell = CALIBRATE_OPEN_DWELL;
-            calibrate_led_sum = 0.0f;
-            calibrate_sag_sum = 0.0f;
-            calibrate_measured = 0;
+            start_calibration();
 
             accum_cur = 0.0f;
             accum_vled = 0.0f;
+            accum_light = 0.0f;
             accum_count = 0;
             accum_vled_min = 4095;
             accum_cur_peak = 0;
@@ -863,13 +954,13 @@ void ArtMatrix::power_tick(void) {
             const bool was_forced = force_light;
             force_light = false;
 
-            // Calibration is walking a white screen up to find this point, so a
-            // trip is its answer, taken at the light that caused it. Otherwise
+            // Calibration is lighting the grid to find this point, so a trip is
+            // its answer, taken at the light that caused it. Otherwise
             // the ceiling only moves if the ceiling is what collapsed the rail;
             // an override reaching it says nothing about white.
             if(calibrating) {
-                gain_i = brightness_allowed > 0.0f ? last_led / brightness_allowed : 0.0f;
-                gain_v = brightness_allowed > 0.0f ? last_sag / brightness_allowed : 0.0f;
+                gain_i = last_light > 0.0f ? last_led / last_light : 0.0f;
+                gain_v = last_light > 0.0f ? last_sag / last_light : 0.0f;
                 ceiling_derate = TRIP_DERATE;
                 store_calibration();
                 finish_calibration(last_led_budget, last_sag_budget);
@@ -923,6 +1014,12 @@ void ArtMatrix::power_tick(void) {
     accum_vled += vled_capture;
     if(vled_sag < accum_vled_min) accum_vled_min = vled_sag;
     if(cur_peak > accum_cur_peak) accum_cur_peak = cur_peak;
+    if(calibrating && !blank && brightness_applied > 0.0f) accum_light += brightness_applied * grid_coverage();
+
+    if(!blank) {
+        if(calibrating && calibrate_phase == CALIBRATE_FILL) grid_light(CALIBRATE_SQUARES_PER_CAPTURE);
+        if(presenting) present_step();
+    }
 
     if(++accum_count < POWER_AVERAGE_CAPTURES) {
         apply_target();
@@ -932,6 +1029,7 @@ void ArtMatrix::power_tick(void) {
 
     const float cur_avg = accum_cur / (float)accum_count;
     const float vled_avg = accum_vled / (float)accum_count;
+    last_light = accum_light / (float)accum_count;
 
     // Report what the loop acted on, not one arbitrary window of it.
     last_cur = (uint32_t)cur_avg;
@@ -941,6 +1039,7 @@ void ArtMatrix::power_tick(void) {
 
     accum_cur = 0.0f;
     accum_vled = 0.0f;
+    accum_light = 0.0f;
     accum_count = 0;
     accum_vled_min = 4095;
     accum_cur_peak = 0;
@@ -1017,13 +1116,9 @@ void ArtMatrix::power_tick(void) {
         // Nothing to regulate with the output off: the budgets describe LED
         // current that is not being drawn.
     } else if(calibrating) {
-        // Walk an all-white screen up from black until the supply says stop.
-        // Every pixel is lit, so nothing has to be extrapolated from the
-        // picture and there is no small quantity to divide by: what the ADC
-        // reads at the stopping point is what a fully lit panel costs here.
         if(calibrate_dwell) {
-            // One averaged tick discarded after each step, so that what the
-            // next one measures is entirely the panel at its new drive.
+            // One averaged tick discarded after the fill stops, so that what is
+            // measured is entirely the panel at its final drive.
             calibrate_dwell--;
         } else if(calibration_valid) {
             // Already measured on this supply, and the dwell above has just
@@ -1033,26 +1128,27 @@ void ArtMatrix::power_tick(void) {
             gain_v = calibration_gain_v;
             ceiling_derate = calibration_derate;
             finish_calibration(led_budget, sag_budget);
-        } else if(brightness_allowed > 0.0f
-                  && (calibrate_measured > 0u || over_budget || brightness_allowed >= 1.0f)) {
+        } else if(calibrate_phase == CALIBRATE_OPEN) {
+            calibrate_phase = CALIBRATE_FILL;
+            brightness_allowed = CALIBRATE_LIGHT;
+        } else if(calibrate_phase == CALIBRATE_FILL) {
+            if(over_budget || grid_lit >= GRID_SQUARES) {
+                calibrate_phase = CALIBRATE_MEASURE;
+                calibrate_dwell = CALIBRATE_DWELL;
+            }
+        } else {
             // Hold here and average, rather than taking the gain from whichever
-            // single tick happened to cross the budget. Once started this runs
-            // to completion, so a marginal reading falling back under on the
-            // next tick cannot restart the walk.
+            // single tick happened to cross the budget.
             calibrate_led_sum += led;
             calibrate_sag_sum += last_sag;
+            calibrate_light_sum += last_light;
 
             if(++calibrate_measured >= CALIBRATE_MEASURE_TICKS) {
-                const float ticks = (float)calibrate_measured;
-                gain_i = (calibrate_led_sum / ticks) / brightness_allowed;
-                gain_v = (calibrate_sag_sum / ticks) / brightness_allowed;
+                gain_i = calibrate_light_sum > 0.0f ? calibrate_led_sum / calibrate_light_sum : 0.0f;
+                gain_v = calibrate_light_sum > 0.0f ? calibrate_sag_sum / calibrate_light_sum : 0.0f;
                 store_calibration();
                 finish_calibration(led_budget, sag_budget);
             }
-        } else {
-            brightness_allowed += CALIBRATE_STEP;
-            if(brightness_allowed > 1.0f) brightness_allowed = 1.0f;
-            calibrate_dwell = CALIBRATE_DWELL;
         }
     } else {
         // Nothing here reads the frame. The ceiling came off a real white
