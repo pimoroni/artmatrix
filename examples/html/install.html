@@ -17,6 +17,10 @@
     <small id="grid-status">Fetching the plugin list…</small>
     <p class="warning" id="install-error" hidden></p>
 
+    <select id="category-filter" aria-label="Category" hidden>
+        <option value="">All</option>
+    </select>
+
     <form id="plugin-select" action="/install" method="post">
         <ul class="plugin-grid" id="plugin-grid" data-thumbnails="{{thumbnail_base}}"></ul>
 
@@ -82,13 +86,29 @@
         chosen = chosen && chosen.value;
         grid.replaceChildren();
 
-        var plugins = Object.keys(plugin_names)
-            .filter((plugin) => !installed.includes(plugin))
+        var remaining = Object.keys(plugin_names).filter((plugin) => !installed.includes(plugin));
+
+        // only categories with something left to install, so a choice never shows an empty grid
+        var filter = document.getElementById("category-filter");
+        var counts = {};
+        for (const plugin of remaining) {
+            const group = details[plugin].category;
+            counts[group] = (counts[group] || 0) + 1;
+        }
+        var categories = Object.keys(counts).sort();
+        var category = categories.includes(filter.value) ? filter.value : "";
+        filter.replaceChildren(new Option(`All (${remaining.length})`, ""),
+            ...categories.map((name) => new Option(`${name} (${counts[name]})`, name)));
+        filter.value = category;
+        filter.hidden = remaining.length === 0;
+
+        var plugins = remaining
+            .filter((plugin) => !category || details[plugin].category === category)
             .sort((a, b) => displayName(a).localeCompare(displayName(b)));
 
         var status = document.getElementById("grid-status");
         status.textContent = "All plugins installed";
-        status.hidden = plugins.length > 0;
+        status.hidden = remaining.length > 0;
 
         for (const plugin of plugins) {
             var item = document.createElement("li");
@@ -213,6 +233,8 @@
         button.textContent = "Installing...";
         button.disabled = true;
     });
+
+    document.getElementById("category-filter").addEventListener("change", renderGrid);
 
     loadIndex();
     watchInstall();
