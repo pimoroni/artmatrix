@@ -96,7 +96,9 @@
             counts[group] = (counts[group] || 0) + 1;
         }
         var categories = Object.keys(counts).sort();
-        var category = categories.includes(filter.value) ? filter.value : "";
+        // the choice lives in the url's #, which the browser keeps through the install redirect
+        var wanted = decodeURIComponent(location.hash.slice(1));
+        var category = categories.includes(wanted) ? wanted : "";
         filter.replaceChildren(new Option(`All (${remaining.length})`, ""),
             ...categories.map((name) => new Option(`${name} (${counts[name]})`, name)));
         filter.value = category;
@@ -229,12 +231,16 @@
 
     // the radio has to stay enabled here or the browser leaves it out of the POST
     document.getElementById("plugin-select").addEventListener("submit", () => {
+        document.getElementById("plugin-select").action = `/install${location.hash}`;
         var button = document.getElementById("install-button");
         button.textContent = "Installing...";
         button.disabled = true;
     });
 
-    document.getElementById("category-filter").addEventListener("change", renderGrid);
+    document.getElementById("category-filter").addEventListener("change", function() {
+        history.replaceState(null, "", this.value ? `/install#${encodeURIComponent(this.value)}` : "/install");
+        renderGrid();
+    });
 
     loadIndex();
     watchInstall();
