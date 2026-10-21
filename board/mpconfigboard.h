@@ -36,7 +36,10 @@ int mp_hal_is_pin_reserved(int n);
 // Skip default pins
 #define MICROPY_HW_UART_NO_DEFAULT_PINS         (1)
 
-// Don't use SRAM for MicroPython heap
+// The MicroPython heap is PSRAM only. ArtMatrix ships with 8MB, and a board
+// whose PSRAM fails is rejected at test. rp2 main.c still falls back to the
+// SRAM __GcHeapStart..__GcHeapEnd region if PSRAM is missing, but that never
+// happens on a shipped board, so that SRAM is free for static buffers.
 #define MICROPY_GC_SPLIT_HEAP                   (0)
 
 #define MICROPY_PY_THREAD                       (0)
