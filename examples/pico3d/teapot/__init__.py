@@ -51,6 +51,8 @@ view_projection = pico3d.mat4.perspective(45, 1.0, 0.1, 20).multiply(
 backdrop = brush.gradient(brush.LINEAR, 0, 0, 0, 128,
                           [(0.0, BACKDROP_TOP), (1.0, BACKDROP_BOTTOM)])
 
+pico3d.engine.cores(2)
+
 surfaces = {}
 start = time.ticks_ms()
 
@@ -58,8 +60,9 @@ start = time.ticks_ms()
 def surface_for(target):
     key = id(target)
     if key not in surfaces:
-        surfaces[key] = (target, pico3d.surface(target))
-    return surfaces[key][1]
+        surface = pico3d.surface(target)
+        surfaces[key] = (target, surface, pico3d.scene(surface, meshes=1, vertices=1200, triangles=2300))
+    return surfaces[key][1:]
 
 
 def update():
@@ -70,10 +73,12 @@ def update():
     screen.pen = backdrop
     screen.rectangle(0, 0, screen.width, screen.height)
 
-    surface = surface_for(screen)
-    surface.clear_depth()
+    surface, scene = surface_for(screen)
     model = (pico3d.mat4()
              .rotate_y(spin)
              .rotate_x(12 * math.sin(elapsed * 0.0011))
              .scale(scale))
-    surface.render(mesh, model, view_projection, material, sun)
+    scene.reset()
+    scene.add(mesh, model, view_projection, material, sun)
+    surface.clear_depth()
+    surface.draw(scene)
