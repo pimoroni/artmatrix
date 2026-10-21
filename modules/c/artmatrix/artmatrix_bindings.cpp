@@ -71,6 +71,11 @@ typedef struct _mp_obj_float_t {
 const uint ARTMATRIX_WIDTH = 128;
 const uint ARTMATRIX_HEIGHT = 128;
 
+const uint ARTMATRIX_SCRATCH_WIDTH = 192;
+const uint ARTMATRIX_SCRATCH_HEIGHT = 128;
+
+static uint32_t __attribute__ ((aligned (4))) scratch_buffer[ARTMATRIX_SCRATCH_WIDTH * ARTMATRIX_SCRATCH_HEIGHT];
+
 /********** WS2812 **********/
 
 /***** Variables Struct *****/
@@ -392,6 +397,15 @@ mp_obj_t artmatrix_surface(mp_obj_t self_in, mp_obj_t index_in) {
     return mp_obj_new_memoryview('B' | MP_OBJ_ARRAY_TYPECODE_FLAG_RW,
                                  ARTMATRIX_WIDTH * ARTMATRIX_HEIGHT * 4,
                                  artmatrix_obj.artmatrix->get_surface((uint32_t)index));
+}
+
+// display.scratch() -> memoryview of an RGBA8888 scratch image in SRAM, to wrap
+// in an image(SCRATCH_WIDTH, SCRATCH_HEIGHT, ...). Never shown on the panel.
+mp_obj_t artmatrix_scratch(mp_obj_t self_in) {
+    (void)self_in;
+    return mp_obj_new_memoryview('B' | MP_OBJ_ARRAY_TYPECODE_FLAG_RW,
+                                 sizeof(scratch_buffer),
+                                 scratch_buffer);
 }
 
 // Support for `memoryview(display)`

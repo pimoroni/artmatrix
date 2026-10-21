@@ -5,6 +5,7 @@
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix___del___obj, artmatrix___del__);
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(artmatrix_update_obj, 1, 2, artmatrix_update);
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_surface_obj, artmatrix_surface);
+MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_scratch_obj, artmatrix_scratch);
 MP_DEFINE_CONST_FUN_OBJ_1(artmatrix_is_busy_obj, artmatrix_is_busy);
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_blocking_obj, artmatrix_set_blocking);
 MP_DEFINE_CONST_FUN_OBJ_2(artmatrix_set_hold_obj, artmatrix_set_hold);
@@ -23,6 +24,7 @@ static const mp_rom_map_elem_t artmatrix_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&artmatrix___del___obj) },
     { MP_ROM_QSTR(MP_QSTR_update), MP_ROM_PTR(&artmatrix_update_obj) },
     { MP_ROM_QSTR(MP_QSTR_surface), MP_ROM_PTR(&artmatrix_surface_obj) },
+    { MP_ROM_QSTR(MP_QSTR_scratch), MP_ROM_PTR(&artmatrix_scratch_obj) },
     { MP_ROM_QSTR(MP_QSTR_is_busy), MP_ROM_PTR(&artmatrix_is_busy_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_blocking), MP_ROM_PTR(&artmatrix_set_blocking_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_hold), MP_ROM_PTR(&artmatrix_set_hold_obj) },
@@ -56,7 +58,9 @@ static const mp_map_elem_t artmatrix_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_artmatrix), (mp_obj_t)&artmatrix_type },
 
     { MP_ROM_QSTR(MP_QSTR_WIDTH), MP_ROM_INT(128) },
-    { MP_ROM_QSTR(MP_QSTR_HEIGHT), MP_ROM_INT(128) }
+    { MP_ROM_QSTR(MP_QSTR_HEIGHT), MP_ROM_INT(128) },
+    { MP_ROM_QSTR(MP_QSTR_SCRATCH_WIDTH), MP_ROM_INT(192) },
+    { MP_ROM_QSTR(MP_QSTR_SCRATCH_HEIGHT), MP_ROM_INT(128) }
 };
 static MP_DEFINE_CONST_DICT(mp_module_artmatrix_globals, artmatrix_globals_table);
 
