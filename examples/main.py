@@ -252,6 +252,11 @@ cx, cy = screen.width / 2, screen.height / 2
 def import_plugin(name):
     """Import a plugin with a known starting surface state, and record what it set."""
     surface = surfaces[0]
+
+    # the plugin on surface 0 gets its state back on the next bind
+    if slot_owner[0] is not None:
+        plugin_state[slot_owner[0]] = capture_state(surface)
+
     apply_state(surface, DEFAULT_STATE)
     builtins.screen = surface
 
@@ -414,6 +419,9 @@ def load_plugins():
     if to_add or len(config.plugins) + len(config.disabled_plugins) != known:
         write_config()
 
+    # what's showing, so it can stay on if it's still enabled
+    showing = modules[current_plugin][0] if modules else None
+
     # drop plugins that are no longer running, before importing, so their RAM is
     # back in time for whatever is being enabled.
     modules = []
@@ -437,8 +445,10 @@ def load_plugins():
     # Import every enabled plugin, those that need the internet included while
     # there's none, so the rotation can change later without an import's pause
     for plugin in list(enabled_plugins):
+        # one already running keeps its module, re-importing would reset its state
+        module = sys.modules.get(f"/lib/plugins/{plugin}")
         try:
-            module = import_plugin(plugin)
+            module = module or import_plugin(plugin)
         except (ImportError, SyntaxError, OSError, MemoryError, ValueError):
 
             # claw back some memory, especially if the error was memory related.
@@ -460,16 +470,17 @@ def load_plugins():
 
         loaded.append((plugin, module, needs_internet))
 
-    # modules is empty, so this starts the rotation from the beginning
-    pick_rotation()
+    pick_rotation(showing)
 
 
-def pick_rotation():
+def pick_rotation(showing=None):
     """Rotate the loaded plugins that can run as things stand, without importing
-    anything. The plugin showing stays on if it can still run."""
+    anything. The plugin showing stays on if it can still run. load_plugins()
+    empties the rotation first, so it says which one that was."""
     global modules, current_plugin, fading
 
-    showing = modules[current_plugin][0] if modules else None
+    if modules:
+        showing = modules[current_plugin][0]
     modules = [(name, module) for name, module, needs_internet in loaded
                if connection == ONLINE or not needs_internet]
     names = [entry[0] for entry in modules]
@@ -631,8 +642,8 @@ def device_brightness(request):
     # bop it, wait no, set it!
     display.set_brightness(config.brightness / 100)
 
-    return render_template("html/settings.html", version=FIRMWARE,
-                           delay_value=str(delay_value), delay_unit=delay_unit)
+    # the settings page sets this in the background, it has nothing to show
+    return "", 204
 
 
 DELAY_UNITS = {"seconds": 1, "minutes": 60, "hours": 3600}
@@ -804,10 +815,12 @@ def usage(_request):
     # statvfs reports fragment size, total fragments and free fragments
     frsize, blocks, bfree = os.statvfs("/")[1:4]
 
-    # collect first or the free figure counts garbage that isn't really in use
+    # collect first or the free figure counts garbage that isn't really in use.
+    # mem_free() walks the whole heap, so it's read once
     gc.collect()
+    mem_free = gc.mem_free()
     j = {"flash_total": frsize * blocks, "flash_free": frsize * bfree,
-         "mem_total": gc.mem_alloc() + gc.mem_free(), "mem_free": gc.mem_free()}
+         "mem_total": gc.mem_alloc() + mem_free, "mem_free": mem_free}
 
     if sd_present:
         try:

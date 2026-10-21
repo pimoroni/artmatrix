@@ -1,6 +1,5 @@
 import machine
 import os
-import gc
 
 log_file = "log.txt"
 
@@ -84,7 +83,8 @@ def truncate(file, target_size):
 
 def log(level, text):
   datetime = datetime_string()
-  log_entry = "{0} [{1:8} /{2:>4}kB] {3}".format(datetime, level, round(gc.mem_free() / 1024), text)
+  # no free-memory column: gc.mem_free() walks the whole 8 MB heap, and this runs per request
+  log_entry = "{0} [{1:8}] {2}".format(datetime, level, text)
   print(log_entry)
 
   # Set log_file to None to keep the console output but skip the flash write. A
