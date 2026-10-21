@@ -297,6 +297,7 @@ class ArtMatrix {
 
     // Power management
     irq_handler_t irq_handler = nullptr;
+    uint power_irq = 0;                      // core1's user IRQ that runs power_tick()
     int dma_channel_adc = -1;
     bool panel_powered = false;
     bool blank = true;
@@ -459,7 +460,7 @@ class ArtMatrix {
     uint32_t* get_surface(uint32_t index);
     void update(uint8_t blend = 0u);
 
-    void begin(irq_handler_t handler);
+    void begin(irq_handler_t handler, uint power_irq_num);
     void power_tick(void);
     void power_down(void);
     bool is_powered(void);

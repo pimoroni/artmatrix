@@ -3,6 +3,7 @@
 #include "pico/multicore.h"
 #include "pico/runtime.h"
 #include "hardware/timer.h"
+#include "hardware/structs/nvic.h"
 
 #include "micropython/modules/util.hpp"
 
@@ -103,6 +104,21 @@ void __isr __not_in_flash_func(dma_complete)() {
     if(artmatrix_obj.artmatrix) artmatrix_obj.artmatrix->dma_complete();
 }
 
+static int power_irq = -1;
+
+void __isr power_irq_handler() {
+    if(artmatrix_obj.artmatrix) artmatrix_obj.artmatrix->power_tick();
+}
+
+// Not irq_set_enabled(): enabling clears the pending bit first, which throws
+// away a capture that landed while masked, and the next capture is only started
+// by power_tick() itself.
+static inline void power_irq_mask(bool masked) {
+    const uint32_t bit = 1u << (power_irq % 32);
+    if(masked) nvic_hw->icer[power_irq / 32] = bit;
+    else       nvic_hw->iser[power_irq / 32] = bit;
+}
+
 #define stack_size 4096u
 #define ARTMATRIX_STARTUP_DELAY_MS 250u
 static uint32_t core1_stack[stack_size / sizeof(uint32_t)] = {0};
@@ -119,7 +135,13 @@ void artmatrix_core1_entry() {
     // downstream copy of the handler cannot see it; use the SDK's own.
     multicore_lockout_victim_init();
 
-    artmatrix_obj.artmatrix->begin(dma_complete);
+    // power_tick() runs from this, raised by each finished ADC capture, so the
+    // supply is watched on time however long this loop is busy.
+    power_irq = user_irq_claim_unused(true);
+    irq_set_exclusive_handler(power_irq, power_irq_handler);
+
+    artmatrix_obj.artmatrix->begin(dma_complete, power_irq);
+    power_irq_mask(false);
 
     multicore_fifo_push_blocking(0); // TODO: handle issues here?
 
@@ -130,8 +152,11 @@ void artmatrix_core1_entry() {
     // artmatrix runs the display from interrupts on this core, once
     // power_tick() sees a supply on VLED_SENSE and brings the panel up.
     while (!artmatrix_obj.exit_core1) {
-        artmatrix_obj.artmatrix->power_tick();
         artmatrix_obj.artmatrix->led_tick();
+
+        // power_tick() writes back_buffer and the gamma tables, and starts or
+        // ends calibration, so hold it off from the check through update().
+        power_irq_mask(true);
 
         const bool calibrating = artmatrix_obj.artmatrix->is_calibrating();
 
@@ -141,6 +166,7 @@ void artmatrix_core1_entry() {
         if (artmatrix_obj.flip && !calibrating) {
             committed_blend = artmatrix_obj.blend;
             artmatrix_obj.artmatrix->update(committed_blend);
+            power_irq_mask(false);
             committed = true;
             was_calibrating = false;
             artmatrix_obj.flip = false;
@@ -150,20 +176,24 @@ void artmatrix_core1_entry() {
         if (was_calibrating && !calibrating && committed) {
             artmatrix_obj.artmatrix->update(committed_blend);
         }
+        power_irq_mask(false);
         was_calibrating = calibrating;
 
-        if (artmatrix_obj.artmatrix->is_powered()) {
-            // Core0 __sev()s after setting either flag, and the display DMA IRQ
-            // wakes us regardless, so don't spin on the bus the DMA is using.
-            __wfe();
-        } else {
-            // No display DMA to wake us, so keep polling for the supply.
-            sleep_us(500);
-        }
+        // Core0 __sev()s after setting either flag, and DMA_IRQ_1 wakes us
+        // regardless, for the display's rows and for each ADC capture, so don't
+        // spin on the bus the DMA is using.
+        __wfe();
     }
 
+    irq_set_enabled(power_irq, false);
     artmatrix_obj.artmatrix->power_down();
     artmatrix_obj.artmatrix->leds_off();
+
+    // Core1 is reset after this, but until then nothing may land on handlers
+    // core0 is about to remove.
+    irq_set_enabled(DMA_IRQ_1, false);
+    irq_remove_handler(power_irq, power_irq_handler);
+    user_irq_unclaim(power_irq);
 
     multicore_lockout_victim_deinit();
 

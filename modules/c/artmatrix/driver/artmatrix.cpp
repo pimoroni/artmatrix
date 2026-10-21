@@ -1,6 +1,7 @@
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/structs/bus_ctrl.h"
+#include "hardware/structs/nvic.h"
 
 #include "artmatrix.hpp"
 
@@ -199,9 +200,10 @@ void ArtMatrix::start(irq_handler_t handler) {
     }
 }
 
+// DMA_IRQ_1 stays enabled: it also carries the ADC capture that runs the power
+// loop, which has to keep watching for a supply while the panel is down.
 void ArtMatrix::stop(irq_handler_t handler) {
     (void)handler;
-    irq_set_enabled(DMA_IRQ_1, false);
 
     if(dma_channel_a1 != -1) {
         dma_channel_set_irq1_enabled(dma_channel_a1, false);
@@ -246,6 +248,7 @@ ArtMatrix::~ArtMatrix() {
     adc_run(false);
 
     if(dma_channel_adc != -1 && dma_channel_is_claimed(dma_channel_adc)) {
+        dma_channel_set_irq1_enabled(dma_channel_adc, false);
         dma_channel_cleanup(dma_channel_adc);
         dma_channel_unclaim(dma_channel_adc);
         dma_channel_adc = -1;
@@ -259,8 +262,9 @@ ArtMatrix::~ArtMatrix() {
 // run until a supply appears, by which time Python has imported picovector and
 // brought up cyw43, and they have taken the state machines we wanted - claiming late
 // panics with "PIO 2 SM already claimed" on the first hot-plug.
-void ArtMatrix::begin(irq_handler_t handler) {
+void ArtMatrix::begin(irq_handler_t handler, uint power_irq_num) {
     irq_handler = handler;
+    power_irq = power_irq_num;
 
     pio_sm_claim(pio_a, sm_data_a1);
     pio_sm_claim(pio_a, sm_data_a2);
@@ -291,6 +295,11 @@ void ArtMatrix::begin(irq_handler_t handler) {
 
     irq_set_exclusive_handler(DMA_IRQ_1, handler);
     irq_set_priority(DMA_IRQ_1, PICO_HIGHEST_IRQ_PRIORITY);
+
+    // A finished ADC capture raises DMA_IRQ_1 too, and dma_complete() passes it
+    // on to power_irq. A capture that landed before this is still latched.
+    dma_channel_set_irq1_enabled(dma_channel_adc, true);
+    irq_set_enabled(DMA_IRQ_1, true);
 }
 
 void ArtMatrix::release(void) {
@@ -359,6 +368,14 @@ bool ArtMatrix::is_calibrating(void) {
 }
 
 void __no_inline_not_in_flash_func(ArtMatrix::dma_complete()) {
+
+    // power_tick() is in flash and slow next to a row, so it runs from power_irq
+    // at normal priority rather than here. That also leaves it masked, with the
+    // rest of core1, while flash is being written.
+    if(dma_channel_get_irq1_status(dma_channel_adc)) {
+        dma_channel_acknowledge_irq1(dma_channel_adc);
+        nvic_hw->ispr[power_irq / 32u] = 1u << (power_irq % 32u);
+    }
 
     if(dma_channel_get_irq1_status(dma_channel_a1)) {
         dma_channel_acknowledge_irq1(dma_channel_a1);
@@ -963,7 +980,8 @@ void ArtMatrix::apply_target(void) {
     }
 }
 
-// Core1. Cheap to call often; the work only happens once a capture lands.
+// Core1, from power_irq once a capture lands, so it runs on time whatever the
+// core1 loop is doing.
 void ArtMatrix::power_tick(void) {
     if(dma_channel_is_busy(dma_channel_adc)) return;
     adc_run(false);
