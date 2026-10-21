@@ -98,9 +98,9 @@ void __isr __not_in_flash_func(dma_complete)() {
     if(artmatrix_obj.artmatrix) artmatrix_obj.artmatrix->dma_complete();
 }
 
-#define stack_size 8192u
+#define stack_size 4096u
 #define ARTMATRIX_STARTUP_DELAY_MS 250u
-static uint32_t core1_stack[stack_size] = {0};
+static uint32_t core1_stack[stack_size / sizeof(uint32_t)] = {0};
 
 
 // ArtMatrix must be allocated into SRAM (not PSRAM), so reserve a buffer
