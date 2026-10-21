@@ -23,7 +23,7 @@ set(CMAKE_CXX_STANDARD 17)
 # Single-core rasterisation on ArtMatrix (PV_DUAL_CORE is off by default).
 set(PV_DUAL_CORE OFF)
 # Turn pico 3d off
-set(PV_PICO3D OFF)
+set(PV_PICO3D ON)
 find_package(PICOVECTOR_MICROPYTHON CONFIG REQUIRED)
 
 # Build picovector for Pico
