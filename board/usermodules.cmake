@@ -22,12 +22,13 @@ set(CMAKE_CXX_STANDARD 17)
 # PicoVector & MicroPython bindings
 # Single-core rasterisation on ArtMatrix (PV_DUAL_CORE is off by default).
 set(PV_DUAL_CORE OFF)
-# Turn pico 3d off
 set(PV_PICO3D ON)
 find_package(PICOVECTOR_MICROPYTHON CONFIG REQUIRED)
 
-# Build picovector for Pico
-target_compile_definitions(usermod_picovector INTERFACE PICO=1)
+# Build picovector for Pico. pico3d can split a render with core1, which runs
+# the display: artmatrix_bindings.cpp provides pv_core1_run/join and serves the
+# jobs from its core1 loop.
+target_compile_definitions(usermod_picovector INTERFACE PICO=1 PICO3D_EXTERNAL_CORE1=1)
 
 # Essential
 include(pimoroni_i2c/micropython)

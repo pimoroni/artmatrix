@@ -119,7 +119,41 @@ static inline void power_irq_mask(bool masked) {
     else       nvic_hw->iser[power_irq / 32] = bit;
 }
 
-#define stack_size 4096u
+// pico3d's half of a split render, handed to the core1 loop. A job asked for
+// while the loop isn't serving runs here on core0 instead, so a join can never
+// wait on a core1 that isn't coming.
+static void (*volatile core1_job)() = nullptr;
+static volatile uint32_t core1_job_go = 0u;
+static volatile uint32_t core1_job_done = 0u;
+static volatile bool core1_serving = false;
+
+void pv_core1_run(void (*fn)()) {
+    if(!core1_serving) {
+        fn();
+        return;
+    }
+    core1_job = fn;
+    __sync_synchronize();
+    core1_job_go = core1_job_go + 1u;
+    __sev();
+}
+
+void pv_core1_join() {
+    while(core1_job_done != core1_job_go) __wfe();
+    __sync_synchronize();
+}
+
+static inline void core1_job_serve() {
+    const uint32_t ticket = core1_job_go;
+    if(ticket == core1_job_done) return;
+    __sync_synchronize();
+    core1_job();
+    __sync_synchronize();
+    core1_job_done = ticket;
+    __sev();
+}
+
+#define stack_size 8192u
 #define ARTMATRIX_STARTUP_DELAY_MS 250u
 static uint32_t core1_stack[stack_size / sizeof(uint32_t)] = {0};
 
@@ -142,6 +176,7 @@ void artmatrix_core1_entry() {
 
     artmatrix_obj.artmatrix->begin(dma_complete, power_irq);
     power_irq_mask(false);
+    core1_serving = true;
 
     multicore_fifo_push_blocking(0); // TODO: handle issues here?
 
@@ -152,6 +187,9 @@ void artmatrix_core1_entry() {
     // artmatrix runs the display from interrupts on this core, once
     // power_tick() sees a supply on VLED_SENSE and brings the panel up.
     while (!artmatrix_obj.exit_core1) {
+        // First, so a render core0 is waiting on doesn't queue behind a flip.
+        core1_job_serve();
+
         artmatrix_obj.artmatrix->led_tick();
 
         // power_tick() writes back_buffer and the gamma tables, and starts or
@@ -184,6 +222,9 @@ void artmatrix_core1_entry() {
         // spin on the bus the DMA is using.
         __wfe();
     }
+
+    core1_serving = false;
+    core1_job_serve();
 
     irq_set_enabled(power_irq, false);
     artmatrix_obj.artmatrix->power_down();
