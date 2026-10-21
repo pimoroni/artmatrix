@@ -17,7 +17,6 @@ import version
 from easing import easeOutCubic
 from machine import Pin
 from phew import logging, redirect, render_template, serve_file, server
-from scrolling import Scroll
 
 sd_present = False
 sd_logo = image.load("/assets/sd_card_icon.png")
@@ -143,6 +142,7 @@ def migrate_config():
 migrate_config()
 
 import wifi  # noqa E402
+from qr_screen import draw_qr_screen  # noqa E402
 
 # How long boot waits for Wi-Fi before starting the plugins anyway
 WIFI_DEADLINE = 20
@@ -1085,47 +1085,6 @@ def draw_wifi_icon(surface, x1, y1, connected, label=None, scale=1):
             surface.text(label, vec2(x, 100))
 
 
-address_scrolls = {}
-
-
-def show_no_plugins(title="No Plugins :("):
-
-    screen.pen = color.rgb(0, 0, 0)
-    screen.clear()
-
-    y = 5
-    screen.pen = color.white
-    screen.font = rom_font.nope
-    screen.text(title, 5, y)
-    y += 45
-    screen.text("Go to", 5, y)
-    y += 15
-    screen.pen = color.blue
-    address = f"http://{config.wifi_hostname}.local"
-    # An address too wide for the screen scrolls
-    if screen.measure_text(address)[0] > screen.width - 5:
-        if address not in address_scrolls:
-            address_scrolls[address] = Scroll(address, rom_font.nope, align=y, gap=30)
-        address_scrolls[address]()
-    else:
-        screen.text(address, 5, y)
-    y += 15
-    screen.pen = color.white
-    screen.text("Or", 5, y)
-    y += 15
-    screen.pen = color.blue
-    address = f"http://{wifi.ipv4()}"
-    if screen.measure_text(address)[0] > screen.width - 5:
-        if address not in address_scrolls:
-            address_scrolls[address] = Scroll(address, rom_font.nope, align=y, gap=30)
-        address_scrolls[address]()
-    else:
-        screen.text(address, 5, y)
-    y += 15
-    screen.pen = color.white
-    screen.text("in your browser.", 5, y)
-
-
 def show_wifi_failed():
 
     screen.pen = color.rgb(0, 0, 0)
@@ -1329,9 +1288,9 @@ async def draw():
                 show_wifi_failed()
             elif connection == NO_INTERNET and enabled_plugins:
                 # everything switched on needs the internet
-                show_no_plugins("No Internet :(")
+                draw_qr_screen("No Internet :(", "Scan for plugins")
             else:
-                show_no_plugins()
+                draw_qr_screen("Nothing to show", "Scan for plugins")
             await flip(0)
 
         frame_ms = time.ticks_diff(time.ticks_ms(), frame_start)
