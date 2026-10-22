@@ -144,6 +144,9 @@ catch one arbitrary corner of one bitplane.
 */
 const uint ADC_SAMPLES = 384;
 const uint ADC_PER_INPUT = ADC_SAMPLES / 3;
+
+// The last 128ms of the SENS header, one 4ms capture a slot.
+const uint SENSOR_RING = 32;
 constexpr float ADC_CLKDIV = 499.0f; // 48MHz / (499 + 1)
 
 /*
@@ -306,6 +309,8 @@ class ArtMatrix {
     uint settle_count = 0;
     uint oe_index = 0;
     uint16_t sensor_counts = 0;
+    uint16_t sensor_samples[SENSOR_RING][ADC_PER_INPUT] = {};
+    volatile uint32_t sensor_count = 0;      // core1, captures finished
     uint32_t vled_open_counts = 0;           // core1, rail with the LEDs off
     uint32_t vled_open_min_counts = 0;       // core1, its worst sample, what droop is measured against
     uint32_t cur_idle_counts = 0;            // core1, panel draw with LEDs off
@@ -474,6 +479,7 @@ class ArtMatrix {
     void set_force_on(bool force);
     void recalibrate(void);
     uint16_t get_sensor(void);
+    uint32_t get_sensor_history(uint16_t *out, uint32_t since, uint32_t most);
 
     // Raw power state, so the operating point can be inspected from Python
     // rather than inferred. Counts, not volts/amps: 3.22mV and 4.23mA each.

@@ -1,5 +1,6 @@
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
+#include "hardware/sync.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "hardware/structs/nvic.h"
 
@@ -355,6 +356,26 @@ void ArtMatrix::get_power_stats(uint32_t counts[7], float headroom[7]) {
 
 uint16_t ArtMatrix::get_sensor(void) {
     return sensor_counts;
+}
+
+// Captures after `since`, newest `most` at the most, oldest first. Two short of
+// the ring: core1 is filling the slot after the newest, and the one after that is
+// 4ms off, so a copy that sees the count move once at most can't have torn.
+uint32_t ArtMatrix::get_sensor_history(uint16_t *out, uint32_t since, uint32_t most) {
+    if(most > SENSOR_RING - 2) most = SENSOR_RING - 2;
+    uint32_t count;
+    do {
+        count = sensor_count;
+        __dmb();
+        uint32_t first = count - since > most ? count - most : since;
+        uint16_t *to = out;
+        for(uint32_t capture = first; capture < count; capture++) {
+            const uint16_t *slot = sensor_samples[capture % SENSOR_RING];
+            for(uint32_t i = 0u; i < ADC_PER_INPUT; i++) *to++ = slot[i];
+        }
+        __dmb();
+    } while(sensor_count - count > 1u);
+    return count;
 }
 
 bool ArtMatrix::is_powered(void) {
@@ -990,9 +1011,12 @@ void ArtMatrix::power_tick(void) {
     uint32_t vled_sag = 4095;
     uint32_t cur_peak = 0;
 
+    // a reader only takes slots below sensor_count, so this one's ours till we bump it
+    uint16_t *sensor_slot = sensor_samples[sensor_count % SENSOR_RING];
     for(uint32_t i = 0u; i < ADC_SAMPLES; i++) {
         const uint32_t sample = adc_buffer[i];
         sum[i % 3] += sample;
+        if((i % 3) == 1u) sensor_slot[i / 3] = sample;
 
         // Worst instantaneous sag across the window, not the mean. Panel
         // current swings hard within a frame - a bright generation of Life
@@ -1005,6 +1029,8 @@ void ArtMatrix::power_tick(void) {
         // plane. Reported only, as the peak-to-mean ratio.
         if((i % 3) == 0u && sample > cur_peak) cur_peak = sample;
     }
+    __dmb();
+    sensor_count++;
 
     const uint32_t vled_counts = sum[2] / ADC_PER_INPUT;
 

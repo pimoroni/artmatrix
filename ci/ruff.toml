@@ -24,6 +24,7 @@ builtins = [
     "screen",
     "leds",
     "sensor",
+    "mic",
     "UID",
     "BUTTON_A",
     "BUTTON_B",

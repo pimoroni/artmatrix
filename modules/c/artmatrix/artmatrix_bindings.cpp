@@ -1,5 +1,6 @@
 #include <cstdio>
 #include "driver/artmatrix.hpp"
+#include "driver/audio.hpp"
 #include "pico/multicore.h"
 #include "pico/runtime.h"
 #include "hardware/timer.h"
@@ -161,6 +162,12 @@ static uint32_t core1_stack[stack_size / sizeof(uint32_t)] = {0};
 // ArtMatrix must be allocated into SRAM (not PSRAM), so reserve a buffer
 // for it here - Presto_make_new will placement new into this buffer.
 __attribute__((section(".uninitialized_data"))) static uint32_t artmatrix_buffer[sizeof(ArtMatrix) / sizeof(uint32_t)];
+
+// Built on the first display.hear(), not at boot, so plugins that never listen don't pay for the tables.
+static uint32_t audio_buffer[(sizeof(Audio) + 3u) / 4u];
+static Audio *audio = nullptr;
+static uint16_t audio_captures[(SENSOR_RING - 2u) * ADC_PER_INPUT];
+static uint32_t audio_seen = 0u;
 
 
 void artmatrix_core1_entry() {
@@ -413,6 +420,47 @@ mp_obj_t artmatrix_set_current_limit(mp_obj_t self_in, mp_obj_t amps_in) {
 mp_obj_t artmatrix_sensor(mp_obj_t self_in) {
     (void)self_in;
     return mp_obj_new_int(artmatrix_obj.artmatrix->get_sensor());
+}
+
+// display.hear(out) analyses every SENS capture since the last call and writes
+// (level, tone, flux, intensity, active, bpm, phase, beats, beat_strength, kicks,
+//  kick_strength, claps, clap_strength, band0..15, wave0..63) into a float array
+// of at least 93. Captures that fell out of the ring are counted, not heard.
+mp_obj_t artmatrix_hear(mp_obj_t self_in, mp_obj_t out_in) {
+    (void)self_in;
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(out_in, &bufinfo, MP_BUFFER_WRITE);
+    if(bufinfo.typecode != 'f' || bufinfo.len < 93u * sizeof(float)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("out must be an array('f') of 93"));
+    }
+
+    if(audio == nullptr) audio = new(audio_buffer) Audio();
+
+    const uint32_t most = SENSOR_RING - 2u;
+    const uint32_t count = artmatrix_obj.artmatrix->get_sensor_history(audio_captures, audio_seen, most);
+    const uint32_t fresh = count - audio_seen;
+    const uint32_t heard = fresh < most ? fresh : most;
+    audio->skip(fresh - heard);
+    for(uint32_t i = 0u; i < heard; i++) audio->feed(&audio_captures[i * ADC_PER_INPUT]);
+    audio_seen = count;
+
+    float *out = (float *)bufinfo.buf;
+    out[0] = audio->level;
+    out[1] = audio->tone;
+    out[2] = audio->flux;
+    out[3] = audio->intensity;
+    out[4] = audio->active ? 1.0f : 0.0f;
+    out[5] = audio->bpm;
+    out[6] = audio->phase();
+    out[7] = (float)audio->beat.count;
+    out[8] = audio->beat.strength;
+    out[9] = (float)audio->kick.count;
+    out[10] = audio->kick.strength;
+    out[11] = (float)audio->clap.count;
+    out[12] = audio->clap.strength;
+    for(uint32_t i = 0u; i < AUDIO_BANDS; i++) out[13u + i] = audio->bands[i];
+    for(uint32_t i = 0u; i < AUDIO_WAVE; i++) out[29u + i] = audio->wave[i];
+    return mp_const_none;
 }
 
 // display.update(blend=0). blend mixes surface 0 into surface 1, so a plugin

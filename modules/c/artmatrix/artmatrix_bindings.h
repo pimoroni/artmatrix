@@ -19,6 +19,7 @@ extern mp_obj_t artmatrix_set_hold(mp_obj_t self_in, mp_obj_t hold_in);
 extern mp_obj_t artmatrix_set_brightness(mp_obj_t self_in, mp_obj_t value_in);
 extern mp_obj_t artmatrix_set_ambient(mp_obj_t self_in, mp_obj_t on_in);
 extern mp_obj_t artmatrix_sensor(mp_obj_t self_in);
+extern mp_obj_t artmatrix_hear(mp_obj_t self_in, mp_obj_t out_in);
 extern mp_obj_t artmatrix_power_stats(mp_obj_t self_in);
 extern mp_obj_t artmatrix_calibrate(mp_obj_t self_in);
 extern mp_obj_t artmatrix_calibrated(mp_obj_t self_in);
