@@ -61,7 +61,7 @@ static const mp_map_elem_t artmatrix_globals_table[] = {
 
     { MP_ROM_QSTR(MP_QSTR_WIDTH), MP_ROM_INT(128) },
     { MP_ROM_QSTR(MP_QSTR_HEIGHT), MP_ROM_INT(128) },
-    { MP_ROM_QSTR(MP_QSTR_SCRATCH_WIDTH), MP_ROM_INT(192) },
+    { MP_ROM_QSTR(MP_QSTR_SCRATCH_WIDTH), MP_ROM_INT(128) },
     { MP_ROM_QSTR(MP_QSTR_SCRATCH_HEIGHT), MP_ROM_INT(128) }
 };
 static MP_DEFINE_CONST_DICT(mp_module_artmatrix_globals, artmatrix_globals_table);

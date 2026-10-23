@@ -73,7 +73,7 @@ typedef struct _mp_obj_float_t {
 const uint ARTMATRIX_WIDTH = 128;
 const uint ARTMATRIX_HEIGHT = 128;
 
-const uint ARTMATRIX_SCRATCH_WIDTH = 192;
+const uint ARTMATRIX_SCRATCH_WIDTH = 128;
 const uint ARTMATRIX_SCRATCH_HEIGHT = 128;
 
 static uint32_t __attribute__ ((aligned (4))) scratch_buffer[ARTMATRIX_SCRATCH_WIDTH * ARTMATRIX_SCRATCH_HEIGHT];
