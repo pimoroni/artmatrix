@@ -19,7 +19,79 @@
     <hr>
     {{ render_template("html/reset-defaults.html", plugin=plugin) if show_reset else "" }}
     <button type="button" class="secondary" onclick="location.href='/'">←</button>
+    <output class="toast" id="toast" aria-live="polite"></output>
   </main>
+  <script>
+    const toast = document.getElementById("toast");
+    let toastTimer;
+
+    // one pill shared by every message, they never stack
+    const showToast = (message, failed) => {
+      toast.textContent = message;
+      toast.classList.toggle("failed", failed);
+      toast.classList.add("shown");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("shown"), 2000);
+    };
+
+    for (const form of document.querySelectorAll("form[data-autosave]")) {
+      let saving = false;
+      let again = false;
+
+      // the whole form goes every time, a checkbox that isn't posted reads as off
+      const post = () => fetch(form.action, {
+        method: "POST",
+        body: new URLSearchParams(new FormData(form)),
+        redirect: "manual",
+        keepalive: true,
+      });
+
+      // one post at a time, a change made mid-save sends one more when it lands
+      const save = async () => {
+        if (saving) {
+          again = true;
+          return;
+        }
+        saving = true;
+        try {
+          do {
+            again = false;
+            try {
+              const response = await post();
+              if (response.type === "opaqueredirect" || response.ok) {
+                showToast("Saved!", false);
+              } else {
+                showToast("Couldn't save that setting", true);
+              }
+            } catch (error) {
+              if (!(error instanceof TypeError)) throw error;
+              showToast("Couldn't save, check the board is connected", true);
+            }
+          } while (again);
+        } finally {
+          saving = false;
+        }
+      };
+
+      form.addEventListener("change", () => {
+        if (form.reportValidity()) save();
+      });
+
+      // enter saves the field, textareas still get new lines
+      form.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && event.target.tagName === "INPUT") {
+          event.preventDefault();
+          event.target.blur();
+        }
+      });
+
+      // leaving the page, save the field being typed in and anything still waiting
+      window.addEventListener("pagehide", () => {
+        if (form.contains(document.activeElement)) document.activeElement.blur();
+        if (again) post();
+      });
+    }
+  </script>
 </body>
 {{ render_template("/html/footer.html") }}
 </html>

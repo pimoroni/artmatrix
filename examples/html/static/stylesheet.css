@@ -635,6 +635,37 @@ nav > button { flex: 1 1 auto; }
 .status.failed,
 #status_message.failed { border-left-color: var(--danger); color: var(--danger); }
 
+/* the saved pill on plugin pages, one element reused for every message */
+.toast {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  width: fit-content;
+  margin: 0 auto;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  max-width: calc(100% - 2rem);
+  min-height: var(--tap);
+  padding: 0.5rem 0.875rem;
+  border: 1px solid #7ee2a8;
+  border-radius: var(--radius);
+  background: rgba(35, 43, 56, 0.8);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #7ee2a8;
+  font-size: 0.875rem;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.5rem);
+  transition: opacity var(--speed), transform var(--speed);
+}
+
+.toast.shown { opacity: 1; transform: none; }
+.toast.failed { border-color: #ffa8a2; color: #ffa8a2; }
+
 .loading-block,
 #loading_networks_message { margin: 1rem 0; text-align: center; }
 
