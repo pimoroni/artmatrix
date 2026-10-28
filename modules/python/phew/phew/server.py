@@ -334,14 +334,18 @@ async def _handle_request(reader, writer):
           break
         writer.write(chunk)
         await writer.drain()
+  # text goes out as bytes. the stream slices off what a write sent by its byte
+  # count, so a str holding a multi-byte character loses characters when the
+  # socket takes only part of it
   elif type(response.body).__name__ == "generator":
     # generator
     for chunk in response.body:
-      writer.write(chunk)
+      writer.write(chunk.encode() if isinstance(chunk, str) else chunk)
       await writer.drain()
   else:
     # string/bytes
-    writer.write(response.body)
+    body = response.body
+    writer.write(body.encode() if isinstance(body, str) else body)
     await writer.drain()
 
   writer.close()
