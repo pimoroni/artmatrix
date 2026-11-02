@@ -74,8 +74,8 @@
     </div>
     <hr>
     <div>
-      <label>Clock</label>
-      <small>Sync the clock with an internet time server.</small>
+      <label for="time_zone">Clock</label>
+      <select id="time_zone" aria-label="Clock time zone" data-zones="{{time_zones}}" data-value="{{config.time_zone}}"></select>
       <div>
         <button type="button" id="sync_time">Sync Time</button>
         <output for="sync_time" id="sync_time_status"></output>
@@ -191,6 +191,20 @@
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: `value=${ambient_leds.checked}`
+      });
+    });
+
+    const time_zone = document.getElementById("time_zone");
+    for (const [key, name] of JSON.parse(time_zone.dataset.zones)) {
+      time_zone.add(new Option(name, key));
+    }
+    time_zone.value = time_zone.dataset.value;
+
+    time_zone.addEventListener("change", () => {
+      fetch("/time_zone", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${time_zone.value}`
       });
     });
 

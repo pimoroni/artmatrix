@@ -12,6 +12,7 @@ test_state = "IDLE"
 test_ssid = ""
 test_password = ""
 test_hostname = ""
+test_time_zone = ""
 test_started = 0
 
 # Console only. The wifi_test_done poll runs at 1Hz, and each flash append takes
@@ -137,6 +138,7 @@ def write_config():
 
 
 import config   # noqa E402
+import timezones   # noqa E402
 
 
 @server.route("/provision-welcome", methods=["GET", "POST"])
@@ -149,21 +151,25 @@ def provision_welcome(request):
             config.wifi_ssid = ssid
             config.wifi_password = password
             config.wifi_hostname = hostname
+            zone = request.form.get("time_zone", "")
+            if zone in [row[0] for row in timezones.ZONES]:
+                config.time_zone = zone
             config.provisioned = True
             write_config()
             machine.reset()
-    return render_template("html/provision-wifi.html")
+    return render_template("html/provision-wifi.html", time_zones=json.dumps(timezones.choices()))
 
 
 @server.route("/test-network", methods=["POST"])
 def test_network(request):
-    global wlan, test_state, test_ssid, test_password, test_hostname, test_started
+    global wlan, test_state, test_ssid, test_password, test_hostname, test_time_zone, test_started
     if test_state == "CONNECTING":
         return "OK"
 
     test_ssid = request.form.get("wifi_ssid", "")
     test_password = request.form.get("wifi_password", "")
     test_hostname = request.form.get("wifi_hostname", "")
+    test_time_zone = request.form.get("time_zone", "")
     if not test_ssid:
         return "FAILED"
 
@@ -198,6 +204,8 @@ async def watch_test():
             config.wifi_password = test_password
             if test_hostname:
                 config.wifi_hostname = test_hostname
+            if test_time_zone in [row[0] for row in timezones.ZONES]:
+                config.time_zone = test_time_zone
             config.provisioned = True
             write_config()
             show(draw_message, "Connected!", "Restarting...")

@@ -141,6 +141,7 @@ def migrate_config():
 # for cases where the firmware update has added new config elements :)
 migrate_config()
 
+import timezones  # noqa E402
 import wifi  # noqa E402
 from qr_screen import draw_qr_screen  # noqa E402
 
@@ -559,8 +560,11 @@ def wrong_host_redirect(_request):
 
 @server.route("/", methods=["GET"])
 def device_settings(_request):
+    # a template html-escapes a plain name, which suits an attribute, so the
+    # zones go as json and the page builds the options
     return render_template("html/settings.html", version=FIRMWARE,
-                           delay_value=str(delay_value), delay_unit=delay_unit)
+                           delay_value=str(delay_value), delay_unit=delay_unit,
+                           time_zones=json.dumps(timezones.choices()))
 
 
 @server.route("/install", methods=["GET", "POST"])
@@ -607,14 +611,30 @@ def device_sync_time(_request):
     except (OSError, OverflowError, ValueError):
         return "Time sync failed", 502, "text/plain"
 
-    year, month, day, hour, minute, second = time.localtime()[:6]
-    return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d} UTC", 200, "text/plain"
+    now = time.time()
+    minutes = timezones.utc_offset(now)
+    year, month, day, hour, minute, second = time.gmtime(now + minutes * 60)[:6]
+    label = timezones.offset_label(minutes)
+    return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d} {label}", 200, "text/plain"
 
 
 @server.route("/network_status", methods=["POST"])
 def device_network_status(request):
 
     config.network_status = request.form.get("value") == "true"
+    write_config()
+
+    return "OK", 200
+
+
+@server.route("/time_zone", methods=["POST"])
+def device_time_zone(request):
+
+    zone = request.form.get("value")
+    if zone not in [row[0] for row in timezones.ZONES]:
+        return "Unknown time zone", 400
+
+    config.time_zone = zone
     write_config()
 
     return "OK", 200

@@ -33,6 +33,15 @@
 
       <br>
 
+      <h2 id="time_zone_heading">Choose your time zone.</h2>
+      <aside>So the clocks show your local time. You can change it later in the advanced settings.</aside>
+      <fieldset>
+        <select id="time_zone" name="time_zone" aria-labelledby="time_zone_heading"
+          data-zones="{{time_zones}}" data-value="{{config.time_zone}}"></select>
+      </fieldset>
+
+      <br>
+
       <h2>Select your WiFi network.</h2>
       <aside>We've had a poke around and these are the networks we can see. Not seeing your network? <a
           href="javascript: loadNetworks();">Try scanning again</a>.</aside>
@@ -123,7 +132,13 @@
         })
     }
 
-    loadNetworks()  
+    loadNetworks()
+
+    const timeZone = document.getElementById("time_zone")
+    for (const [key, name] of JSON.parse(timeZone.dataset.zones)) {
+      timeZone.add(new Option(name, key))
+    }
+    timeZone.value = timeZone.dataset.value
   </script>
 
   <script type="text/javascript">

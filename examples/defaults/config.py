@@ -28,3 +28,6 @@ network_status = True
 
 # light the leds with the colours along the top of the display
 ambient_leds = True
+
+# the zone plugins show local time in, a key from timezones.ZONES
+time_zone = "uk"
