@@ -176,6 +176,21 @@ PATCH_BYTES = ROW_BYTES * ICON_SIZE // screen.width
 PATCH_START = ICON_Y * ROW_BYTES + ROW_BYTES * ICON_X // screen.width
 icon_patches = [bytearray(PATCH_BYTES * ICON_SIZE) for _ in surfaces]
 
+# The plugin's name in a pill on the bottom left as it comes on, solid for
+# LABEL_SOLID ms then fading out over LABEL_FADE ms. The rows under it are
+# copied out and back like the icon's.
+LABEL_SOLID = 2000
+LABEL_FADE = 1000
+LABEL_HEIGHT = 17
+LABEL_PAD = 4
+LABEL_Y = screen.height - ICON_INSET - LABEL_HEIGHT
+LABEL_START = LABEL_Y * ROW_BYTES
+LABEL_BYTES = LABEL_HEIGHT * ROW_BYTES
+label_patch = bytearray(LABEL_BYTES)
+label_name = None
+label_start = 0
+label_text = None
+
 # Location of plugin index
 INDEX_HOST = "raw.githubusercontent.com"
 INDEX_BASE = "/pimoroni/artmatrix-plugins/refs/heads/main"
@@ -216,6 +231,9 @@ enabled_plugins = []
 # the rotation now as (name, module)
 loaded = []
 modules = []
+
+# Each loaded plugin's name from its package.json, for the label
+display_names = {}
 
 # global brightness and setting
 brightness = int(config.brightness)
@@ -464,10 +482,13 @@ def load_plugins():
 
         try:
             with open(f"/lib/plugins/{plugin}/package.json") as file:
-                needs_internet = json.load(file).get("requires_internet", False)
+                manifest = json.load(file)
         except (OSError, ValueError):
             # no manifest on the board, so it runs whatever the connection
-            needs_internet = False
+            manifest = {}
+
+        needs_internet = manifest.get("requires_internet", False)
+        display_names[plugin] = manifest.get("name", plugin)
 
         loaded.append((plugin, module, needs_internet))
 
@@ -622,6 +643,15 @@ def device_sync_time(_request):
 def device_network_status(request):
 
     config.network_status = request.form.get("value") == "true"
+    write_config()
+
+    return "OK", 200
+
+
+@server.route("/plugin_label", methods=["POST"])
+def device_plugin_label(request):
+
+    config.plugin_label = request.form.get("value") == "true"
     write_config()
 
     return "OK", 200
@@ -1181,10 +1211,47 @@ def reset_transition():
     last_changed = time.time()
 
 
-async def flip(blend, slots=()):
+async def flip(blend, slots=(), label_slot=None):
     """Commit a frame, then wait for core1 before anything draws again. While
-    not online the icon goes over the surfaces in slots, for this frame only."""
+    not online the icon goes over the surfaces in slots, and for its first
+    seconds on the plugin's name goes over label_slot, for this frame only."""
+    global label_text
+
     covered = slots if connection != ONLINE and config.network_status else ()
+
+    label_age = time.ticks_diff(time.ticks_ms(), label_start)
+    labelled = (label_slot is not None and config.plugin_label and label_name in display_names
+                and label_age < LABEL_SOLID + LABEL_FADE)
+
+    if labelled:
+        surface = surfaces[label_slot]
+        label_patch[:] = memoryview(surface)[LABEL_START:LABEL_START + LABEL_BYTES]
+
+        state = capture_state(surface)
+        surface.font = rom_font.nope
+
+        # trimmed once per plugin, the round end takes half the height
+        if label_text is None:
+            label_text = display_names[label_name]
+            room = surface.width - LABEL_PAD - LABEL_HEIGHT // 2
+            if surface.measure_text(label_text)[0] > room:
+                while label_text and surface.measure_text(label_text + "…")[0] > room:
+                    label_text = label_text[:-1]
+                label_text += "…"
+
+        width = surface.measure_text(label_text)[0] + LABEL_PAD + LABEL_HEIGHT // 2
+        radius = LABEL_HEIGHT / 2
+
+        # the layer alpha fades the pill and the text together
+        surface.alpha = 255 if label_age < LABEL_SOLID else 255 - 255 * (label_age - LABEL_SOLID) // LABEL_FADE
+        surface.antialias = image.X4
+        surface.clip = rect(0, LABEL_Y, surface.width, LABEL_HEIGHT)
+        surface.pen = color.rgb(0, 0, 0, 128)
+        surface.shape(shape.rounded_rectangle(0, LABEL_Y, width, LABEL_HEIGHT, 0, radius, radius, 0))
+        surface.pen = color.rgb(255, 255, 255, 191)
+        surface.text(label_text, LABEL_PAD, LABEL_Y + 2)
+
+        apply_state(surface, state)
 
     # At full size the arcs reach 10 px either side of x1, the cross 16 px above
     # y1 and the dot 1 px below, so this centres the icon in its box, a pixel
@@ -1236,6 +1303,9 @@ async def flip(blend, slots=()):
             start = PATCH_START + row * ROW_BYTES
             buffer[start:start + PATCH_BYTES] = patch[row * PATCH_BYTES:(row + 1) * PATCH_BYTES]
 
+    if labelled:
+        memoryview(surfaces[label_slot])[LABEL_START:LABEL_START + LABEL_BYTES] = label_patch
+
 
 def start_transition():
     global current_plugin, current_slot, prev_plugin, prev_slot, fade_start, fading, last_changed
@@ -1275,7 +1345,7 @@ def start_transition():
 
 
 async def draw():
-    global fading, current_slot, frame_ms
+    global fading, current_slot, frame_ms, label_name, label_start, label_text
 
     reset_transition()
 
@@ -1284,6 +1354,11 @@ async def draw():
 
         if modules:
             name, module = modules[current_plugin]
+
+            if name != label_name:
+                label_name = name
+                label_start = time.ticks_ms()
+                label_text = None
 
             if fading:
                 progress = min(1.0, time.ticks_diff(time.ticks_ms(), fade_start) / FADE_DURATION)
@@ -1299,7 +1374,7 @@ async def draw():
                 if progress >= 1.0:
                     fading = False
 
-                await flip(mix if current_slot else 255 - mix, (0, 1))
+                await flip(mix if current_slot else 255 - mix, (0, 1), current_slot)
             else:
                 healthy = run_plugin(name, module, current_slot, verify=True)
 
@@ -1308,7 +1383,7 @@ async def draw():
                 if current_slot and name in direct_framebuffer:
                     current_slot = 0
 
-                await flip(255 if current_slot else 0, (current_slot,))
+                await flip(255 if current_slot else 0, (current_slot,), current_slot)
 
                 due = (time.time() - last_changed) > delay
                 if (due or not healthy) and len(modules) > 1:

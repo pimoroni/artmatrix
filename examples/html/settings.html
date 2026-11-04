@@ -89,6 +89,12 @@
     </div>
     <hr>
     <div>
+      <label for="plugin_label">Plugin Name</label>
+      <small>Show the plugin's name in the bottom left corner of the display for a few seconds when it comes on.</small>
+      <input type="checkbox" role="switch" id="plugin_label" data-value="{{config.plugin_label}}">
+    </div>
+    <hr>
+    <div>
       <label for="ambient_leds">Ambient LEDs</label>
       <small>Light the LEDs with the colours along the top of the display.</small>
       <input type="checkbox" role="switch" id="ambient_leds" data-value="{{config.ambient_leds}}">
@@ -180,6 +186,17 @@
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: `value=${network_status.checked}`
+      });
+    });
+
+    const plugin_label = document.getElementById("plugin_label");
+    plugin_label.checked = plugin_label.dataset.value === "True";
+
+    plugin_label.addEventListener("change", () => {
+      fetch("/plugin_label", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${plugin_label.checked}`
       });
     });
 
