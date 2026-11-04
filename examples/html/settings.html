@@ -264,7 +264,7 @@
 </script>
 
 <script>
-    // Display names come from the index. Without one, the directory name is used instead
+    // Display names come from each plugin's package.json on the device. Without one, the directory name is used instead
     var plugin_names = {};
     var dragging;
 
@@ -275,32 +275,13 @@
         .join(' ');
     }
 
-    // The index is fetched in the background on the device, so a cold boot can
-    // answer "pending" before the first refresh lands.
-    function loadIndex(attempt = 0) {
-        fetch("/index.json")
-        .then((response) => response.json())
-        .then((data) => {
-            // offline, the catalogue won't arrive, so list plugins by folder name
-            if (data.pending && !data.offline) {
-                if (attempt < 10) setTimeout(() => loadIndex(attempt + 1), 2000);
-                return;
-            }
-            plugin_names = data.plugins || {};
-
-            // the list is already built from plugins.json, so just relabel its rows
-            for (const row of document.querySelectorAll("#all_plugins li")) {
-                row.querySelector(".plugin-text").textContent = displayName(row.id);
-            }
-        });
-    }
-
     // Re-fetch just the plugin list after a mutation. A full page reload cost the
-    // stylesheet and the index fetch again for every click.
+    // stylesheet again for every click.
     function loadPluginList() {
         return fetch("/plugins.json")
         .then((response) => response.json())
         .then((data) => {
+            plugin_names = data.names || {};
             document.getElementById("all_plugins").replaceChildren();
             for (const plugin of data.plugins) {
                 var enabled = !data.disabled.includes(plugin);
@@ -430,14 +411,13 @@
                 return;
             }
 
-            warning.textContent = state.error ? `${displayName(state.plugin)}: ${state.error}` : "";
+            warning.textContent = state.error ? `${state.name || displayName(state.plugin)}: ${state.error}` : "";
             warning.hidden = !state.error;
             loadPluginList();
         })
         .catch(() => setTimeout(watchInstall, 2000));
     }
 
-    loadIndex();
     loadPluginList();
     watchInstall();
 </script>

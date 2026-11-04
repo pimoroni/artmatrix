@@ -598,7 +598,15 @@ def install_page(request):
         if install_state is None or install_state["finished"] is True:
             # check the plugin is not already install
             if plugin not in config.plugins:
+                # the install page only offers what's in the cached index
+                try:
+                    with open(INDEX_CACHE) as file:
+                        name = json.load(file)["plugins"][plugin]
+                except (OSError, ValueError, KeyError):
+                    name = None
+
                 install_state = {"plugin": plugin,
+                                 "name": name,
                                  "done": 0,
                                  "total": 0,
                                  "finished": False,
@@ -884,7 +892,16 @@ def usage(_request):
 
 @server.route("/plugins.json")
 def plugins(_request):
-    j = {"plugins": config.plugins, "disabled": config.disabled_plugins}
+    names = {}
+    for plugin in config.plugins:
+        # no readable manifest leaves it out, and the page title-cases the folder
+        try:
+            with open(f"/lib/plugins/{plugin}/package.json") as file:
+                names[plugin] = json.load(file)["name"]
+        except (OSError, ValueError, KeyError):
+            pass
+
+    j = {"plugins": config.plugins, "disabled": config.disabled_plugins, "names": names}
     return json.dumps(j), 200, "application/json"
 
 
