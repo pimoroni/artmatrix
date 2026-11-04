@@ -9,3 +9,7 @@ html/static/*.png
 html/static/*.json
 html/*.html
 lib/plugins/*
+lib/plugins/aurora/*
+lib/plugins/domain_warp/*
+lib/plugins/flow/*
+lib/plugins/resonance/*

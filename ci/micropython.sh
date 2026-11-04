@@ -10,6 +10,11 @@ PIMORONI_PICO_VERSION="ca1224245767da8ca12bf9c2500d9a8e452d9bc8"
 
 PIMORONI_PICOVECTOR_VERSION="01e0b85c7539b6f43310cdaabb288e2fad1198be"
 
+# plugins put in the filesystem image and switched on in defaults/config.py.
+# board/manifest.txt names each folder too
+ARTMATRIX_PLUGINS_VERSION="main"
+BUNDLED_PLUGINS=(aurora domain_warp flow resonance)
+
 PY_DECL_VERSION="v0.0.5"
 DIR2UF2_VERSION="v0.1.0"
 
@@ -38,6 +43,12 @@ function ci_pimoroni_picovector_clone {
     git clone https://github.com/pimoroni/picovector-micropython "$CI_BUILD_ROOT/picovector-micropython"
     git -C "$CI_BUILD_ROOT/picovector-micropython" checkout $PIMORONI_PICOVECTOR_VERSION
     git -C "$CI_BUILD_ROOT/picovector-micropython" submodule update --init
+}
+
+function ci_plugins_clone {
+    log_inform "Using Art Matrix plugins pimoroni/$ARTMATRIX_PLUGINS_VERSION"
+    git clone https://github.com/pimoroni/artmatrix-plugins "$CI_BUILD_ROOT/artmatrix-plugins"
+    git -C "$CI_BUILD_ROOT/artmatrix-plugins" checkout $ARTMATRIX_PLUGINS_VERSION
 }
 
 function ci_apply_patch {
@@ -100,6 +111,7 @@ function ci_prepare_all {
     ci_micropython_clone || return $?
     ci_pimoroni_pico_clone || return $?
     ci_pimoroni_picovector_clone || return $?
+    ci_plugins_clone || return $?
     ci_micropython_build_mpy_cross || return $?
 }
 
@@ -142,6 +154,18 @@ function ci_cmake_configure {
         return 1
     fi
     BUILD_DIR="$CI_BUILD_ROOT/build-$BOARD"
+
+    # fetched and copied here, not in ci_plugins_clone. CI checks out a fresh
+    # project root each run, but restores the clone from the prepare-all cache,
+    # which would otherwise keep main as it was when this script last changed
+    git -C "$CI_BUILD_ROOT/artmatrix-plugins" fetch -q origin "$ARTMATRIX_PLUGINS_VERSION" || return 1
+    git -C "$CI_BUILD_ROOT/artmatrix-plugins" checkout -q --detach FETCH_HEAD || return 1
+    rm -rf "$CI_PROJECT_ROOT/examples/lib/plugins"
+    mkdir -p "$CI_PROJECT_ROOT/examples/lib/plugins"
+    for PLUGIN in "${BUNDLED_PLUGINS[@]}"; do
+        cp -R "$CI_BUILD_ROOT/artmatrix-plugins/$PLUGIN" "$CI_PROJECT_ROOT/examples/lib/plugins/" || return 1
+    done
+
     cmake -S $CI_BUILD_ROOT/micropython/ports/rp2 -B "$BUILD_DIR" \
     -DPICOTOOL_FORCE_FETCH_FROM_GIT=1 \
     -DPICO_BUILD_DOCS=0 \

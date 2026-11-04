@@ -15,7 +15,7 @@ wifi_country = "GB"
 delay = 10
 
 # Installed plugins, in the order they're listed and shown.
-plugins = []
+plugins = ["aurora", "domain_warp", "flow", "resonance"]
 
 # The installed plugins that are switched off
 disabled_plugins = []

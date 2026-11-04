@@ -1,11 +1,9 @@
-import os
 import json
 import time
 import asyncio
 import machine
 from phew import logging, server, redirect, serve_file, render_template, access_point
 import network
-from easing import easeInOutSine
 
 wlan = None
 test_state = "IDLE"
@@ -19,73 +17,52 @@ test_started = 0
 # the multicore lockout.
 logging.log_file = None
 
-screen.font = rom_font.nope
-
 DOMAIN = "artmatrix.wireless"
 ssid = "Art Matrix Setup"
-ssid_length, _ = screen.measure_text(ssid)
 
-# create the qr payload
-qr_payload = f"WIFI:S:{ssid};T:nopass;;"
-
-FADE_MS = 500
 TEST_DEADLINE_MS = 30000
 RESULT_HOLD_MS = 3000
+PHONE_POLL_MS = 1000
 
+WAITING = "Waiting for user"
+
+# the line under SETUP MODE, and whether a phone is on the setup network.
+# main.py shows the setup screen while a phone is on or a test is running
+status_line = WAITING
+phone_joined = False
+
+# main.py imports this with the splash on screen
 background = image(screen.width, screen.height)
 background.blit(screen, vec2(0, 0))
 
-# qr() draws dark on light, so swap the palette to suit this splash.
-qr = image.qr(qr_payload, image.QR_MEDIUM, 0)
-qr.palette = [color.rgb(0, 0, 0), color.white]
-qr_size = qr.width * 3
-qr_x = (screen.width - qr_size) // 2
+
+# sized like main.py's plugin name pill, flat on the left edge and round on the right
+PILL_HEIGHT = 17
+PILL_PAD = 4
+PILL_INSET = 5
 
 
-def fit(text):
-    if screen.measure_text(text)[0] <= screen.width - 10:
-        return text
-    while text and screen.measure_text(text + "...")[0] > screen.width - 10:
-        text = text[:-1]
-    return text + "..."
-
-
-def draw_setup():
+# main.py calls this with screen bound to surface 0, still in the state the last
+# plugin left it
+def draw():
+    screen.alpha = 255
+    screen.clip = rect(0, 0, screen.width, screen.height)
     screen.blit(background, vec2(0, 0))
-    screen.pen = color.rgb(0, 0, 0, 75)
-    screen.clear()
-    screen.pen = color.rgb(0, 0, 0)
-    screen.rectangle(qr_x - 4, 4, qr_size + 8, qr_size + 8)
-    screen.blit(qr, rect(qr_x, 8, qr_size, qr_size))
-    screen.pen = color.white
-    screen.text("Connect to:", 5, screen.height - 29)
-    screen.text(f"{ssid}", 5, screen.height - 16)
 
+    screen.antialias = image.X4
+    screen.font = rom_font.nope
+    radius = PILL_HEIGHT / 2
+    for text, y in (("SETUP MODE", PILL_INSET), (status_line, screen.height - PILL_INSET - PILL_HEIGHT)):
+        width = screen.measure_text(text)[0] + PILL_PAD + PILL_HEIGHT // 2
+        screen.pen = color.rgb(0, 0, 0, 128)
+        screen.shape(shape.rounded_rectangle(0, y, width, PILL_HEIGHT, 0, radius, radius, 0))
+        screen.pen = color.rgb(255, 255, 255, 191)
+        screen.text(text, PILL_PAD, y + 2)
 
-def draw_message(title, detail):
-    screen.blit(background, vec2(0, 0))
-    screen.pen = color.rgb(0, 0, 0, 180)
-    screen.clear()
-    screen.pen = color.white
-    screen.text(title, 5, screen.height - 29)
-    screen.text(fit(detail), 5, screen.height - 16)
-
-
-def show(draw, *args):
-    previous = image(screen.width, screen.height, display.surface(1))
-    previous.blit(screen, vec2(0, 0))
-    draw(*args)
-    fade_start = time.ticks_ms()
-    while (elapsed := time.ticks_diff(time.ticks_ms(), fade_start)) < FADE_MS:
-        display.update(int((1 - easeInOutSine(elapsed / FADE_MS)) * 255))
-    display.update()
-
-
-show(draw_setup)
 
 # put board into access point mode
 logging.info("> going into access point mode")
-ap = access_point("Art Matrix Setup", password="")
+ap = access_point(ssid, password="")
 logging.info("  -", ap.ifconfig()[0])
 
 # dns server to catch all dns requests
@@ -94,28 +71,6 @@ from phew import dns   # noqa E402
 dns.run_catchall(ap.ifconfig()[0])
 
 logging.info("> creating web server...")
-
-
-def file_exists(filename):
-    try:
-        return (os.stat(filename)[0] & 0x4000) == 0
-    except OSError:
-        return False
-
-
-def copy_file(source, target):
-    with open(source, "rb") as infile:
-        with open(target, "wb") as outfile:
-            while True:
-                chunk = infile.read(1024)
-                if not chunk:
-                    break
-                outfile.write(chunk)
-
-
-# create fresh config file if missing
-if not file_exists("config.py"):
-    copy_file("/defaults/config.py", "config.py")
 
 
 # write the current values in config to the config.py file
@@ -162,7 +117,7 @@ def provision_welcome(request):
 
 @server.route("/test-network", methods=["POST"])
 def test_network(request):
-    global wlan, test_state, test_ssid, test_password, test_hostname, test_time_zone, test_started
+    global wlan, test_state, test_ssid, test_password, test_hostname, test_time_zone, test_started, status_line
     if test_state == "CONNECTING":
         return "OK"
 
@@ -173,7 +128,7 @@ def test_network(request):
     if not test_ssid:
         return "FAILED"
 
-    show(draw_message, "Testing WiFi", test_ssid)
+    status_line = "Testing WiFi"
 
     if wlan is None:
         wlan = network.WLAN(network.STA_IF)
@@ -190,8 +145,15 @@ def provisioning_done(_request):
     return test_state
 
 
+async def watch_phone():
+    global phone_joined
+    while True:
+        phone_joined = bool(ap.status("stations"))
+        await asyncio.sleep_ms(PHONE_POLL_MS)
+
+
 async def watch_test():
-    global test_state
+    global test_state, status_line
     while True:
         await asyncio.sleep_ms(250)
         if test_state != "CONNECTING":
@@ -208,17 +170,17 @@ async def watch_test():
                 config.time_zone = test_time_zone
             config.provisioned = True
             write_config()
-            show(draw_message, "Connected!", "Restarting...")
+            status_line = "Connected!"
             await asyncio.sleep_ms(RESULT_HOLD_MS)
             machine.reset()
 
         if status < 0 or time.ticks_diff(time.ticks_ms(), test_started) > TEST_DEADLINE_MS:
             test_state = "FAILED"
             wlan.disconnect()
-            show(draw_message, "Couldn't connect", test_ssid)
+            status_line = "Couldn't connect"
             await asyncio.sleep_ms(RESULT_HOLD_MS)
             if test_state == "FAILED":
-                show(draw_setup)
+                status_line = WAITING
 
 
 @server.route("/networks.json")
@@ -251,12 +213,6 @@ def catchall(request):
     return "404 Not Found Buddy!", 404
 
 
-# wait for a client to connect
-logging.info("> waiting for a client to connect")
-while len(ap.status("stations")) == 0:
-    time.sleep(0.01)
-logging.info("  - client connected!", ap.status("stations")[0])
-
-logging.info("> running provisioning application...")
+# main.py runs the server, these run alongside its frame loop
+server.loop.create_task(watch_phone())
 server.loop.create_task(watch_test())
-server.run(host="0.0.0.0", port=80)

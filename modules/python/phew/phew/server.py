@@ -364,6 +364,12 @@ def add_route(path, handler, methods=None):
   _routes = sorted(_routes, key=lambda route: len(route.path_parts), reverse=True)
 
 
+def clear_routes():
+  global _routes, catchall_handler
+  _routes = []
+  catchall_handler = None
+
+
 def set_callback(handler):
   global catchall_handler
   catchall_handler = handler

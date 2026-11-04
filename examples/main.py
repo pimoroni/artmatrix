@@ -102,18 +102,17 @@ def apply_state(surface, state):
 
 loop = asyncio.get_event_loop()
 
-needs_provisioning = force_provisioning
-
 try:
-    import config  # fails to import (missing/corrupt) go into provisioning
-    if not config.provisioned:   # provisioned flag not set go into provisioning
-        needs_provisioning = True
-except Exception:  # noqa: BLE001
-    needs_provisioning = True
+    import config
+except (ImportError, SyntaxError):
+    # missing or corrupt, so start again from the defaults
+    with open("/defaults/config.py") as infile, open("config.py", "w") as outfile:
+        outfile.write(infile.read())
+    import config
 
-if needs_provisioning:
-    import provisioning    # noqa F401
-    # control never returns to here, provisioning takes over completely
+# Before set up, or with A and C held: the setup network runs from the end of boot
+# until a reset, and the setup screen shows while a phone is on it
+setup_mode = force_provisioning or not getattr(config, "provisioned", False)
 
 
 def migrate_config():
@@ -1217,10 +1216,10 @@ async def flip(blend, slots=(), label_slot=None):
     seconds on the plugin's name goes over label_slot, for this frame only."""
     global label_text
 
-    covered = slots if connection != ONLINE and config.network_status else ()
+    covered = slots if connection != ONLINE and config.network_status and not setup_mode else ()
 
     label_age = time.ticks_diff(time.ticks_ms(), label_start)
-    labelled = (label_slot is not None and config.plugin_label and label_name in display_names
+    labelled = (label_slot is not None and (config.plugin_label or setup_mode) and label_name in display_names
                 and label_age < LABEL_SOLID + LABEL_FADE)
 
     if labelled:
@@ -1352,7 +1351,17 @@ async def draw():
     while True:
         frame_start = time.ticks_ms()
 
-        if modules:
+        setup_screen = setup_mode and (not modules or provisioning.phone_joined
+                                       or provisioning.status_line != provisioning.WAITING)
+
+        if setup_screen:
+            # the plugin showing comes back after, on a full turn with its name
+            reset_transition()
+            label_name = None
+            builtins.screen = surfaces[0]
+            provisioning.draw()
+            await flip(0)
+        elif modules:
             name, module = modules[current_plugin]
 
             if name != label_name:
@@ -1405,15 +1414,16 @@ async def draw():
 
         await asyncio.sleep_ms(10)
 
-screen.blit(static_splash, vec2(0, 0))
-draw_wifi_icon(screen, screen.width / 2, 23, False, "Connecting")
-display.update()
-
 # One attempt, then the plugins start whatever happened. watch_connection()
-# carries on from there.
-wifi.connect()
-if wait_for_wifi(time.ticks_add(time.ticks_ms(), WIFI_DEADLINE * 1000)):
-    connection = ONLINE if sync_time() is None else NO_INTERNET
+# carries on from there. Setup mode skips it and runs its own network.
+if not setup_mode:
+    screen.blit(static_splash, vec2(0, 0))
+    draw_wifi_icon(screen, screen.width / 2, 23, False, "Connecting")
+    display.update()
+
+    wifi.connect()
+    if wait_for_wifi(time.ticks_add(time.ticks_ms(), WIFI_DEADLINE * 1000)):
+        connection = ONLINE if sync_time() is None else NO_INTERNET
 
 print("connection:", CONNECTION_NAMES[connection])
 
@@ -1429,13 +1439,23 @@ try:
 except OSError:
     pass
 
-load_plugins()
+# A+C shows the setup screen alone and leaves the plugins as they were
+if not force_provisioning:
+    load_plugins()
 
-# blit the last frame of the splash as a "clear"
+# blit the last frame of the splash as a "clear", in the state plugins start
+# from as their imports leave theirs behind
+apply_state(screen, DEFAULT_STATE)
 screen.blit(static_splash, vec2(0, 0))
 
-# draw the connected icon and update the display
-draw_wifi_icon(screen, screen.width / 2, 23, wifi.is_connected(), "Connecting")
+if setup_mode:
+    # only the setup pages are served until set up. provisioning takes the
+    # splash on screen as its background
+    server.clear_routes()
+    import provisioning
+else:
+    # draw the connected icon and update the display
+    draw_wifi_icon(screen, screen.width / 2, 23, wifi.is_connected(), "Connecting")
 if sd_present:
     screen.blit(sd_logo, 5, 5)
 display.update()
@@ -1455,6 +1475,7 @@ DOMAIN = f"{config.wifi_hostname}.local"
 display.set_blocking(False)
 
 loop.create_task(draw())
-loop.create_task(watch_connection())
+if not setup_mode:
+    loop.create_task(watch_connection())
 loop.create_task(flush_config())
 server.run(host="0.0.0.0", port=80)
