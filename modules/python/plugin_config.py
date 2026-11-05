@@ -14,7 +14,7 @@ def plugin_config(name, defaults):
             cfg[key] = key in saved
             continue
 
-        value = saved.get(key, default)
+        value = saved.get(key)
         try:
             if value in (None, ""):
                 value = default

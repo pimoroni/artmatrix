@@ -467,7 +467,7 @@ def load_plugins():
         module = sys.modules.get(f"/lib/plugins/{plugin}")
         try:
             module = module or import_plugin(plugin)
-        except (ImportError, SyntaxError, OSError, MemoryError, ValueError):
+        except (ImportError, SyntaxError, OSError, MemoryError, ValueError, TypeError):
 
             # claw back some memory, especially if the error was memory related.
             gc.collect()
