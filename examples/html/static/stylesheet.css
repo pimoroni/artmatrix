@@ -17,6 +17,7 @@
   --accent-tint-2: rgba(108, 92, 224, 0.18);
   --danger:        #ff8f8a;
   --success:       #2f9e5b;
+  --success-ink:   #7ee2a8;
 
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -237,7 +238,7 @@ select {
 button[disabled] { opacity: 0.5; cursor: not-allowed; }
 
 button,
-[role=button] {
+a.button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -257,23 +258,29 @@ button,
   transition: background-color var(--speed), border-color var(--speed), color var(--speed);
 }
 
-button:hover {
+a.button { text-decoration: none; }
+
+button:hover,
+a.button:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
 
-button:focus-visible {
+button:focus-visible,
+a.button:focus-visible {
   outline: 2px solid var(--accent-ink);
   outline-offset: 2px;
 }
 
-button.secondary {
+button.secondary,
+.presets > button {
   background: transparent;
   border-color: var(--edge);
   color: var(--ink-dim);
 }
 
-button.secondary:hover {
+button.secondary:hover,
+.presets > button:hover {
   background: transparent;
   border-color: var(--accent-ink);
   color: var(--ink);
@@ -533,7 +540,9 @@ input[type=color]::-moz-color-swatch { border: 0; border-radius: 3px; }
   transition: background-color var(--speed), border-color var(--speed), color var(--speed);
 }
 
-.plugin-config .presets > label > input {
+/* the radio does the work, the tile is what's seen */
+.plugin-config .presets > label > input,
+.plugin-card > input[type=radio] {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -546,84 +555,14 @@ input[type=color]::-moz-color-swatch { border: 0; border-radius: 3px; }
 
 .plugin-config .presets > label:hover { border-color: var(--accent-ink); color: var(--ink); }
 
-.plugin-config .presets > label:has(:checked) {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
 .plugin-config .presets > label:has(:focus-visible) { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 
 .plugin-config .colour-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: var(--gap); }
 .plugin-config .colour-row > label { margin: 0; font-weight: 400; color: var(--ink-dim); }
 
-form.grow { flex: 1 1 auto; min-width: 0; }
-form.grow > input,
-form.grow > select { margin: 0; }
-
-.row-list {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--rule);
-}
-
-.row-list > li {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin: 0;
-  min-height: var(--tap);
-  padding: 0.375rem 0.5rem;
-  border-bottom: 1px solid var(--rule);
-  border-left: 3px solid transparent;
-  transition: background-color var(--speed);
-}
-
-@media (hover: hover) {
-  .row-list > li:hover { background: var(--lift); }
-}
-
-/* the plugin name takes the slack and truncates rather than wrapping */
-.plugin-text,
-.row-list > li > .label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 0.875rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-list > li.enabled,
-.row-list > li.active {
-  border-left-color: var(--accent);
-  background: var(--accent-tint);
-}
-
-.row-list > li.enabled .plugin-text,
-.row-list > li.active { color: var(--ink); font-weight: 500; }
-
-@media (hover: hover) {
-  .row-list > li.enabled:hover,
-  .row-list > li.active:hover { background: var(--accent-tint-2); }
-}
-
-.row-list > li.disabled { border-left-color: var(--rule); background: transparent; }
-.row-list > li.disabled .plugin-text { color: var(--ink-dim); }
-.row-list > li.disabled button { opacity: 0.65; }
-
-.picker > li { cursor: pointer; padding: var(--pad); font-size: 0.9375rem; color: var(--ink-dim); }
-.picker > li:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
-.picker > li .note { display: block; font-size: 0.8125rem; font-weight: 400; color: var(--ink-dim); }
-
 nav { display: flex; gap: var(--gap); margin: 1rem 0; }
 nav > button { flex: 1 1 auto; }
 
-.status,
 #status_message {
   margin: 1rem 0;
   padding: 0.625rem var(--pad);
@@ -632,7 +571,6 @@ nav > button { flex: 1 1 auto; }
   font-size: 0.875rem;
 }
 
-.status.failed,
 #status_message.failed { border-left-color: var(--danger); color: var(--danger); }
 
 /* the saved pill on plugin pages, one element reused for every message */
@@ -649,12 +587,12 @@ nav > button { flex: 1 1 auto; }
   max-width: calc(100% - 2rem);
   min-height: var(--tap);
   padding: 0.5rem 0.875rem;
-  border: 1px solid #7ee2a8;
+  border: 1px solid var(--success-ink);
   border-radius: var(--radius);
   background: rgba(35, 43, 56, 0.8);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
-  color: #7ee2a8;
+  color: var(--success-ink);
   font-size: 0.875rem;
   text-align: center;
   pointer-events: none;
@@ -666,13 +604,10 @@ nav > button { flex: 1 1 auto; }
 .toast.shown { opacity: 1; transform: none; }
 .toast.failed { border-color: #ffa8a2; color: #ffa8a2; }
 
-.loading-block,
 #loading_networks_message { margin: 1rem 0; text-align: center; }
 
-.loading-block > div,
 #loading_networks_message > div { color: var(--ink-dim); font-size: 0.875rem; }
 
-.loading-block > svg,
 #loading_networks_message > svg {
   width: 8rem;
   max-width: 50%;
@@ -680,12 +615,9 @@ nav > button { flex: 1 1 auto; }
   stroke: var(--accent-ink);
 }
 
-.loading { opacity: 0.5; }
-
 [aria-busy=true] { pointer-events: none; }
 
-button[aria-busy=true]::after,
-[aria-busy=true].spinner::after {
+button[aria-busy=true]::after {
   content: "";
   width: 0.9em;
   height: 0.9em;
@@ -713,14 +645,6 @@ button[aria-busy=true]::after,
   }
 }
 
-@media (max-width: 22.5rem) {
-  body { padding-left: 0.75rem; padding-right: 0.75rem; }
-  .row-list > li { padding-left: 0.375rem; padding-right: 0.25rem; }
-  .plugin-text { font-size: 0.8125rem; }
-  button.icon { width: 1.75rem; min-width: 1.75rem; height: 1.75rem; min-height: 1.75rem; }
-  button.icon::before { width: 1.0625rem; height: 1.0625rem; }
-}
-
 #networks { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
 
 #networks > li {
@@ -736,6 +660,7 @@ button[aria-busy=true]::after,
 }
 
 #networks > li.active { border-left-color: var(--accent); background: var(--accent-tint); color: var(--ink); font-weight: 500; }
+#networks > li:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
 
 #all_plugins .plugin-card { cursor: default; }
 #all_plugins .plugin-card img,
@@ -767,14 +692,14 @@ button[aria-busy=true]::after,
 #timing > h3 { flex: 1 0 100%; margin-bottom: 0.25rem; }
 #installation > a.button { flex: 1 0 100%; }
 #timing > button { flex: 0 0 auto; }
-#installation > p.warning {
-  flex: 1 0 100%;
-  margin: 0;
+p.warning {
   padding: 0.5rem 0.875rem;
   border: 1px solid var(--danger);
   border-radius: var(--radius);
   color: var(--danger);
 }
+
+#installation > p.warning { flex: 1 0 100%; margin: 0; }
 
 #wifi_details { max-width: none; margin: 0; padding: 0; }
 
@@ -791,6 +716,20 @@ button.warning:hover {
 }
 
 button.warning:focus-visible { outline-color: var(--danger); }
+
+button.done {
+  background: transparent;
+  border-color: var(--success-ink);
+  color: var(--success-ink);
+}
+
+button.done:hover {
+  background: var(--success-ink);
+  border-color: var(--success-ink);
+  color: var(--bg);
+}
+
+button.done:focus-visible { outline-color: var(--success-ink); }
 
 button.success,
 button.success:hover {
@@ -825,7 +764,8 @@ output {
   overflow: hidden;
 }
 
-.usage-bar span {
+.usage-bar span,
+.plugin-card .progress span {
   display: block;
   width: 0;
   height: 100%;
@@ -857,31 +797,6 @@ output {
 .usage-legend .used::before { background: var(--accent); }
 .usage-legend .free::before { background: var(--lift); }
 
-a.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--tap);
-  padding: 0.5rem 0.875rem;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: #fff;
-  font-weight: 500;
-  line-height: 1.2;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background-color var(--speed), border-color var(--speed);
-}
-
-a.button:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: #fff;
-}
-
-a.button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
-
 /* outlined like button.secondary, so it reads as something to tap */
 .back {
   display: inline-flex;
@@ -905,13 +820,7 @@ a.button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2
 
 .install-page > small { margin-bottom: 0.75rem; }
 
-.install-page > p.warning {
-  margin: 0 0 1rem;
-  padding: 0.5rem 0.875rem;
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  color: var(--danger);
-}
+.install-page > p.warning { margin: 0 0 1rem; }
 
 .plugin-grid {
   display: grid;
@@ -939,18 +848,6 @@ a.button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2
 
 @media (hover: hover) {
   .plugin-card:hover { border-color: var(--edge); }
-}
-
-/* the radio does the work, the card is what's seen */
-.plugin-card > input[type=radio] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  border: 0;
-  opacity: 0;
-  cursor: inherit;
 }
 
 .plugin-card:has(:checked) {
@@ -1023,14 +920,6 @@ a.button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2
   background: var(--lift);
 }
 
-.plugin-card .progress span {
-  display: block;
-  width: 0;
-  height: 100%;
-  background: var(--accent);
-  transition: width var(--speed);
-}
-
 /* one install at a time, so the rest of the grid waits */
 .plugin-grid.busy .plugin-card:not(.installing) { opacity: 0.5; cursor: not-allowed; }
 
@@ -1069,24 +958,19 @@ a.button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2
 .presets > button {
   padding-left: 0.25rem;
   padding-right: 0.25rem;
-  background: transparent;
-  border-color: var(--edge);
-  color: var(--ink-dim);
 }
 
-.presets > button:hover {
-  background: transparent;
-  border-color: var(--accent-ink);
-  color: var(--ink);
-}
-
-.presets > button[aria-pressed=true] {
+.presets > button[aria-pressed=true],
+.plugin-config .presets > label:has(:checked) {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
 
 @media (max-width: 22.5rem) {
+  body { padding-left: 0.75rem; padding-right: 0.75rem; }
+  button.icon { width: 1.75rem; min-width: 1.75rem; height: 1.75rem; min-height: 1.75rem; }
+  button.icon::before { width: 1.0625rem; height: 1.0625rem; }
   .plugin-grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
   .install-bar { margin: 0 -0.75rem; padding-left: 0.75rem; padding-right: 0.75rem; }
 }
