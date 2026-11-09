@@ -905,6 +905,18 @@ def plugins(_request):
     return json.dumps(j), 200, "application/json"
 
 
+@server.route("/thumbnail/<plugin>")
+def thumbnail(_request, plugin):
+    file = f"/lib/plugins/{plugin}/thumbnail.png"
+    if plugin not in config.plugins or not server.file_exists(file):
+        return "404 Not Found Buddy!", 404
+
+    # a day without asking the board again, an updated plugin's picture can lag that long
+    response = serve_file(file)
+    response.headers["Cache-Control"] = "max-age=86400"
+    return response
+
+
 @server.route("/index.json")
 def serve_index(_request):
     # serve the cached index; watch_connection() keeps it current in the background

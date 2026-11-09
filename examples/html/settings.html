@@ -25,7 +25,7 @@
 <hr>
 <section id="ordering">
     <h3>Order Plugins:</h3>
-    <ul id="all_plugins">
+    <ul id="all_plugins" class="plugin-grid">
     </ul>
 
 </section>
@@ -338,36 +338,61 @@
                     var list = document.getElementById("all_plugins");
                     item.id = plugin;
 
-                    var text_span = document.createElement("span");
-                    text_span.className = "plugin-text";
-                    text_span.textContent = displayName(plugin);
-                    text_span.onclick = config_link.onclick;
-                    item.appendChild(text_span);
+                    var card = document.createElement("div");
+                    card.className = "plugin-card";
+
+                    var img = document.createElement("img");
+                    img.src = `/thumbnail/${plugin}`;
+                    img.alt = "";
+                    img.loading = "lazy";
+                    img.width = 128;
+                    img.height = 128;
+                    img.draggable = false;
+                    img.onclick = config_link.onclick;
+                    img.addEventListener("error", function() {
+                        var blank = document.createElement("span");
+                        blank.className = "no-thumb";
+                        blank.textContent = displayName(plugin).charAt(0);
+                        blank.onclick = config_link.onclick;
+                        this.replaceWith(blank);
+                    });
+
+                    var name = document.createElement("span");
+                    name.className = "name";
+                    name.textContent = displayName(plugin);
+                    name.onclick = config_link.onclick;
 
                     var drag_handle = document.createElement("span");
                     drag_handle.className = "drag-handle";
                     drag_handle.title = "Drag to reorder";
-                    item.prepend(drag_handle);
+
+                    var controls = document.createElement("div");
+                    controls.className = "card-controls";
+                    controls.append(drag_handle, enable_toggle, config_link, remove_link);
+
+                    card.append(img, name, controls);
+                    item.appendChild(card);
 
                     item.draggable = true;
                     item.addEventListener("dragstart", function(e) {
                         dragging = this;
                         e.dataTransfer.setData("text/plain", plugin);
+                        e.dataTransfer.setDragImage(this, this.offsetWidth / 2, this.offsetHeight / 2);
                     });
                     item.addEventListener("dragover", function(e) {
                         e.preventDefault();
                         var rows = Array.from(list.querySelectorAll("li"));
                         var from = rows.indexOf(dragging);
                         var to = rows.indexOf(this);
-                        this.classList.toggle("drop-above", from > to);
-                        this.classList.toggle("drop-below", from < to);
+                        this.classList.toggle("drop-before", from > to);
+                        this.classList.toggle("drop-after", from < to);
                     });
                     item.addEventListener("dragleave", function() {
-                        this.classList.remove("drop-above", "drop-below");
+                        this.classList.remove("drop-before", "drop-after");
                     });
                     item.addEventListener("drop", function(e) {
                         e.preventDefault();
-                        this.classList.remove("drop-above", "drop-below");
+                        this.classList.remove("drop-before", "drop-after");
                         var rows = Array.from(list.querySelectorAll("li"));
                         var pos = rows.indexOf(this);
 
@@ -382,13 +407,8 @@
                         .catch(() => loadPluginList());
                     });
 
-                    item.appendChild(config_link);
-
-                    item.appendChild(enable_toggle);
                     item.className = enabled ? "enabled" : "disabled";
                     list.appendChild(item);
-
-                    item.appendChild(remove_link);
                 }
             }
             return data.plugins;
