@@ -1441,7 +1441,7 @@ async def draw():
 
         frame_ms = time.ticks_diff(time.ticks_ms(), frame_start)
 
-        await asyncio.sleep_ms(10)
+        await asyncio.sleep_ms(0)
 
 # One attempt, then the plugins start whatever happened. watch_connection()
 # carries on from there. Setup mode skips it and runs its own network.
