@@ -24,11 +24,12 @@
       <br>
 
       <h2>Enter a name for your device</h2>
-      <aside>This is how you'll find the settings page later, at <em>name</em>.local in your browser.</aside>
+      <aside>This is how you'll find the settings page later, at <em>name</em>.local in your browser. Letters, numbers and hyphens only.</aside>
       <fieldset>
         <input id="wifi_hostname" name="wifi_hostname" type="text" value="{{config.wifi_hostname}}"
           placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
-          required />
+          maxlength="32" pattern="[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?"
+          title="Letters, numbers and hyphens only, not starting or ending with a hyphen" required />
       </fieldset>
 
       <br>

@@ -95,6 +95,15 @@ def write_config():
 import config   # noqa E402
 import timezones   # noqa E402
 
+HOSTNAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+
+
+# same rule as the name field's pattern, for requests that skip the form
+def valid_hostname(name):
+    if not 0 < len(name) <= 32 or name[0] == "-" or name[-1] == "-":
+        return False
+    return all(c in HOSTNAME_CHARS for c in name)
+
 
 @server.route("/provision-welcome", methods=["GET", "POST"])
 def provision_welcome(request):
@@ -102,7 +111,7 @@ def provision_welcome(request):
         ssid = request.form.get("wifi_ssid", "")
         password = request.form.get("wifi_password", "")
         hostname = request.form.get("wifi_hostname", "")
-        if ssid and password and hostname:
+        if ssid and password and valid_hostname(hostname):
             config.wifi_ssid = ssid
             config.wifi_password = password
             config.wifi_hostname = hostname
@@ -125,7 +134,7 @@ def test_network(request):
     test_password = request.form.get("wifi_password", "")
     test_hostname = request.form.get("wifi_hostname", "")
     test_time_zone = request.form.get("time_zone", "")
-    if not test_ssid:
+    if not test_ssid or not valid_hostname(test_hostname):
         return "FAILED"
 
     status_line = "Testing WiFi"
