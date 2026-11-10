@@ -1,16 +1,22 @@
 // Board and hardware specific configuration
 #define MICROPY_HW_BOARD_NAME                   "ArtMatrix"
 
-#define MICROPY_HW_ROMFS_BYTES                  (1 * 1024 * 1024)
-#define MICROPY_HW_FLASH_STORAGE_BYTES          (PICO_FLASH_SIZE_BYTES - (2 * 1024 * 1024) - MICROPY_HW_ROMFS_BYTES)
+// Defined in mpconfigboard.cmake
+// #define MICROPY_HW_ROMFS_BYTES                  (1 * 1024 * 1024)
 
 #define MICROPY_OBJ_REPR                        (MICROPY_OBJ_REPR_C)
+
+#define MICROPY_GC_NO_SCAN   (1)   // big PSRAM GC win; NO_CLEAR benefit comes with it
+#define MICROPY_HW_VM_IN_RAM (1)   // ~+20% interp, costs ~6 KB SRAM (.data)
 
 // Set up networking.
 #define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT     "ArtMatrix"
 
 // Enable WiFi & PPP
 #define MICROPY_PY_NETWORK                      (1)
+
+// Raise the 5 socket limit
+#define MEMP_NUM_TCP_PCB                        (50)
 
 // CYW43 driver configuration.
 #define CYW43_USE_SPI                           (1)
@@ -30,13 +36,10 @@ int mp_hal_is_pin_reserved(int n);
 // Skip default pins
 #define MICROPY_HW_UART_NO_DEFAULT_PINS         (1)
 
-// Enable PSRAM
-#define MICROPY_HW_ENABLE_PSRAM                 (1)
+// The MicroPython heap is PSRAM only. ArtMatrix ships with 8MB, and a board
+// whose PSRAM fails is rejected at test. rp2 main.c still falls back to the
+// SRAM __GcHeapStart..__GcHeapEnd region if PSRAM is missing, but that never
+// happens on a shipped board, so that SRAM is free for static buffers.
 #define MICROPY_GC_SPLIT_HEAP                   (0)
 
-// Alias the chip select pin specified by presto.h
-#define MICROPY_HW_PSRAM_CS_PIN                 PIMORONI_ARTMATRIX_PSRAM_CS_PIN
-
 #define MICROPY_PY_THREAD                       (0)
-
-#define PLASMA_DATA_PIN                         (PICO_DEFAULT_WS2812_PIN)

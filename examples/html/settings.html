@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="static/stylesheet.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" href="/static/icon-512.png">
+    <title>Art Matrix Configuration</title>
+</head>
+
+<header>
+    <img src="/static/logo.svg" alt="Art Matrix">
+</header>
+
+<hr>
+<section id="display">
+    <h3>Display brightness:</h3>
+    <div class="presets" id="brightness" data-value="{{config.brightness}}">
+        <button type="button" value="0">Off</button>
+        <button type="button" value="30">Low</button>
+        <button type="button" value="60">Medium</button>
+        <button type="button" value="100">Full</button>
+    </div>
+</section>
+<hr>
+<section id="ordering">
+    <h3>Order Plugins:</h3>
+    <ul id="all_plugins" class="plugin-grid">
+    </ul>
+
+</section>
+<section id="installation">
+    <a class="button" href="/install">Discover more plugins</a>
+    <p class="warning" id="plugin-error" hidden></p>
+</section>
+<hr>
+<section id="timing">
+    <h3>Time between plugins:</h3>
+    <form id="plugin-reorder" action="/reorder" method="post">
+        <input type="number" form="plugin-reorder" id="delay_value" name="delay_value" min="1" value="{{delay_value}}">
+        <select form="plugin-reorder" id="delay_unit" name="delay_unit">
+            <option value="seconds" {{ "selected" if delay_unit == "seconds" else "" }}>seconds</option>
+            <option value="minutes" {{ "selected" if delay_unit == "minutes" else "" }}>minutes</option>
+            <option value="hours" {{ "selected" if delay_unit == "hours" else "" }}>hours</option>
+        </select>
+    </form>
+</section>
+<hr>
+<section id="reboot">
+    <button type="button" id="show_advanced" class="secondary" onclick="this.hidden = true; document.querySelector('#advanced').hidden = false">Advanced settings</button>
+    <div id="advanced" hidden>
+    <h3>System:</h3>
+    <div>
+      <label>Memory</label>
+      <div class="usage">
+        <span class="usage-name">Flash</span>
+        <output class="usage-figures" id="flash_figures">…</output>
+        <div class="usage-bar"><span id="flash_bar"></span></div>
+      </div>
+      <div class="usage">
+        <span class="usage-name">RAM</span>
+        <output class="usage-figures" id="mem_figures">…</output>
+        <div class="usage-bar"><span id="mem_bar"></span></div>
+      </div>
+      <div class="usage" id="sd_row" hidden>
+        <span class="usage-name">SD Card</span>
+        <output class="usage-figures" id="sd_figures">…</output>
+        <div class="usage-bar"><span id="sd_bar"></span></div>
+      </div>
+      <p class="usage-legend">
+        <span class="used">Used</span>
+        <span class="free">Free</span>
+      </p>
+    </div>
+    <hr>
+    <div>
+      <label for="time_zone">Clock</label>
+      <select id="time_zone" aria-label="Clock time zone" data-zones="{{time_zones}}" data-value="{{config.time_zone}}"></select>
+      <div>
+        <button type="button" id="sync_time">Sync Time</button>
+        <output for="sync_time" id="sync_time_status"></output>
+      </div>
+    </div>
+    <hr>
+    <div>
+      <label for="network_status">Network Status</label>
+      <small>Show an icon in the corner of the display when internet access or the network connection is lost.</small>
+      <input type="checkbox" role="switch" id="network_status" data-value="{{config.network_status}}">
+    </div>
+    <hr>
+    <div>
+      <label for="plugin_label">Plugin Name</label>
+      <small>Show the plugin's name in the bottom left corner of the display for a few seconds when it comes on.</small>
+      <input type="checkbox" role="switch" id="plugin_label" data-value="{{config.plugin_label}}">
+    </div>
+    <hr>
+    <div>
+      <label for="ambient_leds">Ambient LEDs</label>
+      <small>Light the LEDs with the colours along the top of the display.</small>
+      <input type="checkbox" role="switch" id="ambient_leds" data-value="{{config.ambient_leds}}">
+    </div>
+    <hr>
+    <div>
+      <label>Firmware</label>
+      <small>{{version}}</small>
+      <small><a href="https://github.com/pimoroni/artmatrix/releases" target="_blank" rel="noopener">Latest releases on GitHub</a></small>
+    </div>
+    <hr>
+    <div>
+      <form id="reboot-art-matrix" action="/reboot" method="post"
+            onsubmit="return window.confirm('Reboot the Art Matrix?');">
+          <input type="hidden" name="confirm" value="1">
+          <button type="submit" class="warning" >Reboot</button>
+      </form>
+    </div>
+    </div>
+</section>
+
+{{ render_template("/html/footer.html") }}
+
+<script>
+  (() => {
+    const presets = document.getElementById("brightness");
+    const choices = Array.from(presets.querySelectorAll("button"));
+    const choose  = (button) => {
+      for (const choice of choices) choice.setAttribute("aria-pressed", choice === button);
+    };
+
+    // a value saved by the old slider lights whichever preset is nearest
+    const saved = Number(presets.dataset.value);
+    choose(choices.reduce((best, choice) =>
+      Math.abs(choice.value - saved) < Math.abs(best.value - saved) ? choice : best));
+
+    for (const choice of choices) {
+      choice.addEventListener("click", () => {
+        choose(choice);
+        fetch(`/brightness?value=${choice.value}`, { method: "POST" })
+          .catch(() => {});
+      });
+    }
+
+    const timing  = document.getElementById("plugin-reorder");
+    const delay   = document.getElementById("delay_value");
+
+    // /reorder trusts the number, so an empty box or a 0 never leaves the page
+    const saveDelay = () => {
+      if (!timing.reportValidity()) return;
+      fetch("/reorder", { method: "POST", body: new URLSearchParams(new FormData(timing)) })
+        .catch(() => {});
+    };
+
+    delay.addEventListener("change", saveDelay);
+    document.getElementById("delay_unit").addEventListener("change", saveDelay);
+
+    // Enter would submit and reload the page, leaving the box sends the change instead
+    timing.addEventListener("submit", (event) => {
+      event.preventDefault();
+      delay.blur();
+    });
+
+    const sync    = document.getElementById("sync_time");
+    const status  = document.getElementById("sync_time_status");
+
+    sync.addEventListener("click", () => {
+      sync.disabled = true;
+      status.textContent = "Syncing…";
+
+      // phew needs at least one field or the body arrives empty
+      fetch("/synctime", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "confirm=1"
+      })
+        .then((response) => response.text())
+        .then((text) => { status.textContent = text; })
+        .catch(() => { status.textContent = "Time sync failed"; })
+        .finally(() => { sync.disabled = false; });
+    });
+
+    const network_status = document.getElementById("network_status");
+    network_status.checked = network_status.dataset.value === "True";
+
+    network_status.addEventListener("change", () => {
+      // phew needs at least one field or the body arrives empty
+      fetch("/network_status", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${network_status.checked}`
+      });
+    });
+
+    const plugin_label = document.getElementById("plugin_label");
+    plugin_label.checked = plugin_label.dataset.value === "True";
+
+    plugin_label.addEventListener("change", () => {
+      fetch("/plugin_label", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${plugin_label.checked}`
+      });
+    });
+
+    const ambient_leds = document.getElementById("ambient_leds");
+    ambient_leds.checked = ambient_leds.dataset.value === "True";
+
+    ambient_leds.addEventListener("change", () => {
+      fetch("/ambient_leds", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${ambient_leds.checked}`
+      });
+    });
+
+    const time_zone = document.getElementById("time_zone");
+    for (const [key, name] of JSON.parse(time_zone.dataset.zones)) {
+      time_zone.add(new Option(name, key));
+    }
+    time_zone.value = time_zone.dataset.value;
+
+    time_zone.addEventListener("change", () => {
+      fetch("/time_zone", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `value=${time_zone.value}`
+      });
+    });
+
+    // the figures sit behind Advanced, and reading the RAM figure walks the board's whole heap
+    document.getElementById("show_advanced").addEventListener("click", () => {
+      fetch("/usage.json")
+        .then((response) => response.json())
+        .then((data) => {
+          // a whole number of MB hides the difference between 12.8 and 13.0, which
+          // is the whole point of the figure on a device this size
+          const size = (bytes) => {
+            const kb = bytes / 1024;
+            if (kb < 1024) return `${Math.round(kb)} KB`;
+            const mb = kb / 1024;
+            return mb < 1024 ? `${mb.toFixed(1)} MB` : `${(mb / 1024).toFixed(1)} GB`;
+          };
+
+          const rows = [["flash", data.flash_total, data.flash_free],
+                        ["mem", data.mem_total, data.mem_free]];
+
+          if (data.sd_total) {
+            rows.push(["sd", data.sd_total, data.sd_free]);
+            document.getElementById("sd_row").hidden = false;
+          }
+
+          for (const [name, total, free] of rows) {
+            document.getElementById(`${name}_figures`).textContent =
+              `${size(free)} free of ${size(total)}`;
+            document.getElementById(`${name}_bar`).style.width =
+              `${(100 * (total - free)) / total}%`;
+          }
+        })
+        .catch(() => {
+          for (const name of ["flash", "mem"]) {
+            document.getElementById(`${name}_figures`).textContent = "Unavailable";
+          }
+        });
+    }, { once: true });
+  })();
+</script>
+
+<script>
+    // Display names come from each plugin's package.json on the device. Without one, the directory name is used instead
+    var plugin_names = {};
+    var dragging;
+
+    function displayName(plugin) {
+        return plugin_names[plugin] || plugin
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
+
+    // Re-fetch just the plugin list after a mutation. A full page reload cost the
+    // stylesheet again for every click.
+    function loadPluginList() {
+        return fetch("/plugins.json")
+        .then((response) => response.json())
+        .then((data) => {
+            plugin_names = data.names || {};
+            document.getElementById("all_plugins").replaceChildren();
+            for (const plugin of data.plugins) {
+                var enabled = !data.disabled.includes(plugin);
+
+                var config_link = document.createElement("button");
+                config_link.className = "icon settings";
+                config_link.title = "Configure";
+                config_link.onclick = function() {
+                    window.location.href = `/config?plugin=${plugin}`;
+                }
+
+                var remove_link = document.createElement("button");
+                remove_link.className = "icon delete";
+                remove_link.title = "Delete";
+                remove_link.onclick = function() {
+                    if (!window.confirm(`Delete ${displayName(plugin)}? This removes its files from the device.`)) return;
+                    fetch(`/remove?plugin=${plugin}`, {
+                        method: 'POST',
+                    }).then(() => loadPluginList());
+                }
+
+                var enable_toggle = document.createElement("input");
+                enable_toggle.type = "checkbox";
+                enable_toggle.role = "switch";
+                enable_toggle.id = `${plugin}_checkbox`;
+                enable_toggle.checked = enabled;
+
+                enable_toggle.addEventListener("click", function() {
+                    var warning = document.getElementById("plugin-error");
+                    fetch(`/active?plugin=${plugin}&state=${this.checked}`, {
+                        method: 'POST',
+                    })
+                    .then((response) => {
+                        if (response.ok) {
+                            this.closest("li").className = this.checked ? "enabled" : "disabled";
+                            warning.hidden = true;
+                            return;
+                        }
+                        this.checked = !this.checked;
+                        return response.text().then((text) => {
+                            warning.textContent = `${displayName(plugin)}: ${text}`;
+                            warning.hidden = false;
+                        });
+                    })
+                    .catch(() => {
+                        this.checked = !this.checked;
+                        warning.textContent = `${displayName(plugin)}: couldn't reach the device`;
+                        warning.hidden = false;
+                    });
+                });
+
+                if (plugin) {
+                    var item = document.createElement("li");
+                    var list = document.getElementById("all_plugins");
+                    item.id = plugin;
+
+                    var card = document.createElement("div");
+                    card.className = "plugin-card";
+
+                    var img = document.createElement("img");
+                    img.src = `/thumbnail/${plugin}`;
+                    img.alt = "";
+                    img.loading = "lazy";
+                    img.width = 128;
+                    img.height = 128;
+                    img.draggable = false;
+                    img.onclick = config_link.onclick;
+                    img.addEventListener("error", function() {
+                        var blank = document.createElement("span");
+                        blank.className = "no-thumb";
+                        blank.textContent = displayName(plugin).charAt(0);
+                        blank.onclick = config_link.onclick;
+                        this.replaceWith(blank);
+                    });
+
+                    var name = document.createElement("span");
+                    name.className = "name";
+                    name.textContent = displayName(plugin);
+                    name.onclick = config_link.onclick;
+
+                    var drag_handle = document.createElement("span");
+                    drag_handle.className = "drag-handle";
+                    drag_handle.title = "Drag to reorder";
+
+                    var controls = document.createElement("div");
+                    controls.className = "card-controls";
+                    controls.append(drag_handle, enable_toggle, config_link, remove_link);
+
+                    card.append(img, name, controls);
+                    item.appendChild(card);
+
+                    item.draggable = true;
+                    item.addEventListener("dragstart", function(e) {
+                        dragging = this;
+                        e.dataTransfer.setData("text/plain", plugin);
+                        e.dataTransfer.setDragImage(this, this.offsetWidth / 2, this.offsetHeight / 2);
+                    });
+                    item.addEventListener("dragover", function(e) {
+                        e.preventDefault();
+                        var rows = Array.from(list.querySelectorAll("li"));
+                        var from = rows.indexOf(dragging);
+                        var to = rows.indexOf(this);
+                        this.classList.toggle("drop-before", from > to);
+                        this.classList.toggle("drop-after", from < to);
+                    });
+                    item.addEventListener("dragleave", function() {
+                        this.classList.remove("drop-before", "drop-after");
+                    });
+                    item.addEventListener("drop", function(e) {
+                        e.preventDefault();
+                        this.classList.remove("drop-before", "drop-after");
+                        var rows = Array.from(list.querySelectorAll("li"));
+                        var pos = rows.indexOf(this);
+
+                        // move the row now, the device's list is only fetched back if it refuses
+                        if (rows.indexOf(dragging) > pos) this.before(dragging);
+                        else this.after(dragging);
+
+                        fetch(`/position?plugin=${e.dataTransfer.getData("text/plain")}&pos=${pos}`, {
+                            method: 'POST',
+                        })
+                        .then((response) => { if (!response.ok) loadPluginList(); })
+                        .catch(() => loadPluginList());
+                    });
+
+                    item.className = enabled ? "enabled" : "disabled";
+                    list.appendChild(item);
+                }
+            }
+            return data.plugins;
+        });
+    }
+
+    // The install runs in the background on the device. A finished result is only
+    // served once, so the poll stops as soon as it sees one.
+    function watchInstall() {
+        fetch("/install.json")
+        .then((response) => response.json())
+        .then((state) => {
+            var warning = document.getElementById("plugin-error");
+
+            if (!state.plugin) return;
+
+            if (!state.finished) {
+                warning.hidden = true;
+                setTimeout(watchInstall, 1000);
+                return;
+            }
+
+            warning.textContent = state.error ? `${state.name || displayName(state.plugin)}: ${state.error}` : "";
+            warning.hidden = !state.error;
+            loadPluginList();
+        })
+        .catch(() => setTimeout(watchInstall, 2000));
+    }
+
+    loadPluginList();
+    watchInstall();
+</script>

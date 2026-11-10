@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="static/stylesheet.css">
+  <title>Art Matrix Setup</title>
+</head>
+
+<header>
+    <img src="/static/logo.svg" alt="Art Matrix">
+</header>
+
+<hr>
+
+<body>
+  <section id="wifi_details">
+    <form id="main" action="/provision-welcome" method="post">
+      <h2>OK, next up we'll need some WiFi details.</h2>
+      <aside>Your Art Matrix uses WiFi to set its clock, download new plugins and let you change its settings from your
+        phone or computer.</aside>
+
+      <br>
+
+      <h2>Enter a name for your device</h2>
+      <aside>This is how you'll find the settings page later, at <em>name</em>.local in your browser. Letters, numbers and hyphens only.</aside>
+      <fieldset>
+        <input id="wifi_hostname" name="wifi_hostname" type="text" value="{{config.wifi_hostname}}"
+          placeholder="e.g. arty" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false"
+          maxlength="32" pattern="[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?"
+          title="Letters, numbers and hyphens only, not starting or ending with a hyphen" required />
+      </fieldset>
+
+      <br>
+
+      <h2 id="time_zone_heading">Choose your time zone.</h2>
+      <aside>So the clocks show your local time. You can change it later in the advanced settings.</aside>
+      <fieldset>
+        <select id="time_zone" name="time_zone" aria-labelledby="time_zone_heading"
+          data-zones="{{time_zones}}" data-value="{{config.time_zone}}"></select>
+      </fieldset>
+
+      <br>
+
+      <h2>Select your WiFi network.</h2>
+      <aside>We've had a poke around and these are the networks we can see. Not seeing your network? <a
+          href="javascript: loadNetworks();">Try scanning again</a>.</aside>
+      <div id="loading_networks_message">
+        <svg viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg">
+          <g fill="none" fill-rule="evenodd" transform="translate(1 1)" stroke-width="1">
+            <circle cx="22" cy="22" r="6" stroke-opacity="0">
+              <animate attributeName="r" begin="1.5s" dur="3s" values="6;22" calcMode="linear"
+                repeatCount="indefinite" />
+              <animate attributeName="stroke-opacity" begin="1.5s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+              <animate attributeName="stroke-width" begin="1.5s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+            </circle>
+            <circle cx="22" cy="22" r="6" stroke-opacity="0">
+              <animate attributeName="r" begin="3s" dur="3s" values="6;22" calcMode="linear" repeatCount="indefinite" />
+              <animate attributeName="stroke-opacity" begin="3s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+              <animate attributeName="stroke-width" begin="3s" dur="3s" values="1;0" calcMode="linear"
+                repeatCount="indefinite" />
+            </circle>
+            <circle cx="22" cy="22" r="8">
+              <animate attributeName="r" begin="0s" dur="1.5s" values="6;1;2;3;4;5;6" calcMode="linear"
+                repeatCount="indefinite" />
+            </circle>
+          </g>
+        </svg>
+        <div>Scanning for networks.</div>
+      </div>
+
+      <ul id="networks">
+      </ul>
+
+      <input id="wifi_ssid" name="wifi_ssid" value="{{config.wifi_ssid}}" type="hidden" />
+
+      <br>
+
+      <h2>Enter your WiFi password so that we can <s>download pictures of cats</s> fetch new plugins.</h2>
+      <aside>If your Art Matrix can't connect to WiFi at startup, it carries on with the plugins that don't need the
+        internet, shows a WiFi icon in the corner and keeps trying. To change your WiFi details, hold A+C while pressing
+        RESET.</aside>
+      <fieldset>
+        <input id="wifi_password" name="wifi_password" type="text" value="{{config.wifi_password}}"
+          placeholder="e.g. Cats4lyfe&lt;3!" autocapitalize="none" autocorrect="off" autocomplete="off"
+          spellcheck="false" required />
+      </fieldset>
+    </form>
+
+    <nav>
+      <button id="submit_button" type="submit" form="main">Done! ➔</button>
+    </nav>
+
+    <div id="status_message" role="status" hidden></div>
+
+  </section>
+
+  <script>
+    var selectedNetwork = "{{config.wifi_ssid}}"
+
+    function loadNetworks() {
+      document.getElementById("loading_networks_message").style.display = "block"
+      document.getElementById("networks").style.display = "none"
+
+      fetch("/networks.json")
+        .then((response) => response.json())
+        .then((data) => {
+          document.getElementById("networks").innerHTML = ""
+
+          for (let network of data) {
+            let listItem = document.createElement("li")
+            listItem.textContent = network
+            if (network == selectedNetwork) {
+              listItem.classList.add("active")
+            }
+            document.getElementById("networks").appendChild(listItem)
+
+            listItem.addEventListener("click", function (e) {
+              document.querySelectorAll("#networks >li").forEach((e) => {
+                e.classList.remove("active")
+              })
+              listItem.classList.add("active")
+              document.getElementById("wifi_ssid").value = listItem.textContent
+            })
+          }
+
+          document.getElementById("loading_networks_message").style.display = "none"
+          document.getElementById("networks").style.display = "grid"
+        })
+    }
+
+    loadNetworks()
+
+    const timeZone = document.getElementById("time_zone")
+    for (const [key, name] of JSON.parse(timeZone.dataset.zones)) {
+      timeZone.add(new Option(name, key))
+    }
+    timeZone.value = timeZone.dataset.value
+  </script>
+
+  <script type="text/javascript">
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const REQUEST_TIMEOUT_MS = 4000
+    const TEST_DEADLINE_MS = 45000
+
+    const fetchWithin = (url, options, ms) => {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), ms)
+      return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer))
+    }
+
+    // spinner on the submit button for as long as the connection test runs
+    const setTesting = (testing) => {
+      let button = document.getElementById("submit_button")
+      if (testing) {
+        button.setAttribute("aria-busy", "true")
+        button.textContent = "Testing WiFi connection"
+      } else {
+        button.removeAttribute("aria-busy")
+        button.textContent = "Retry ➔"
+      }
+    }
+
+    const setStatus = (message, failed) => {
+      let status = document.getElementById("status_message")
+      status.textContent = message
+      status.classList.toggle("failed", failed === true)
+      status.hidden = false
+    }
+
+    const selectedSsid = () => document.getElementById("wifi_ssid").value || "that network"
+
+    const setup_form = () => {
+      document.getElementById("main").onsubmit = async (event) => {
+        // must happen before any await, or the form submits out from under us
+        event.preventDefault()
+        if (!document.getElementById("wifi_ssid").value) {
+          setStatus("Pick your WiFi network from the list above.", true)
+          return
+        }
+        const data = new FormData(event.target)
+        setTesting(true)
+        setStatus(`Testing ${selectedSsid()}. Your phone may drop off the setup network for a moment, so keep this page open.`)
+
+        try {
+          await fetchWithin("/test-network", { method: "POST", body: data }, REQUEST_TIMEOUT_MS)
+        } catch (error) {
+          console.log("Test request", error)
+        }
+
+        const deadline = Date.now() + TEST_DEADLINE_MS
+        while (Date.now() < deadline) {
+          await sleep(1000)
+          let text
+          try {
+            const response = await fetchWithin("/wifi_test_done", {}, REQUEST_TIMEOUT_MS)
+            text = await response.text()
+          } catch (error) {
+            console.log("Poll", error)
+            continue
+          }
+
+          if (text == "OK") {
+            let button = document.getElementById("submit_button")
+            button.removeAttribute("aria-busy")
+            button.classList.add("success")
+            button.textContent = "Connected ✓"
+            setStatus("Saving settings & restarting. You can close this page and rejoin your usual WiFi.")
+            return
+          }
+
+          if (text == "FAILED") {
+            setTesting(false)
+            setStatus(`Couldn't connect to ${selectedSsid()}. Check the password is right and that the network is in range, then try again.`, true)
+            return
+          }
+        }
+
+        setTesting(false)
+        setStatus("Lost contact with the Art Matrix. Its screen shows how the test went for a few seconds. If it hasn't restarted, rejoin \"Art Matrix Setup\" and try again.", true)
+      };
+    }
+
+    // On reopening the captive portal iOS restores this page from its
+    // back/forward cache, reinstating the scroll, zoom and focus state from the
+    // previous visit - which is what drags the view into the top-left corner a
+    // beat after load. pageshow is the platform's bfcache-restore hook; nothing
+    // here asks for focus, so drop whatever it restored.
+    window.addEventListener("pageshow", () => {
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+    })
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", (event) => { setup_form() })
+    } else {
+      setup_form()
+    }
+  </script>
+</body>
+{{ render_template("/html/footer.html") }}
+</html>

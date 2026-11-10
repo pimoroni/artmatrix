@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="static/stylesheet.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" href="/static/icon-512.png">
+    <title>Art Matrix Plugins</title>
+</head>
+
+<header>
+    <img src="/static/logo.svg" alt="Art Matrix">
+</header>
+
+<main class="install-page">
+    <a class="back" href="/">Back to settings</a>
+    <small id="grid-status">Fetching the plugin list…</small>
+    <p class="warning" id="install-error" hidden></p>
+
+    <select id="category-filter" aria-label="Category" hidden>
+        <option value="">All</option>
+    </select>
+
+    <form id="plugin-select" action="/install" method="post">
+        <ul class="plugin-grid" id="plugin-grid" data-thumbnails="{{thumbnail_base}}"></ul>
+
+        <div class="install-bar">
+            <output id="install-choice">Choose a plugin</output>
+            <button type="submit" id="install-button" disabled>Install</button>
+        </div>
+    </form>
+</main>
+
+{{ render_template("/html/footer.html") }}
+
+<script>
+    var plugin_names = {};
+    var details = {};
+    var installed = [];
+    var installing = null;
+    var thumbnail_base = document.getElementById("plugin-grid").dataset.thumbnails;
+
+    function displayName(plugin) {
+        return plugin_names[plugin] || plugin
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
+
+    // retried like the settings page, a cold boot answers "pending" at first
+    function loadIndex(attempt = 0) {
+        var status = document.getElementById("grid-status");
+
+        fetch("/index.json")
+        .then((response) => response.json())
+        .then((data) => {
+            if (data.offline) {
+                status.textContent = "The Art Matrix has no internet, so plugins can't be installed right now.";
+                return;
+            }
+            if (data.pending) {
+                if (attempt < 10) setTimeout(() => loadIndex(attempt + 1), 2000);
+                else status.textContent = "The plugin list couldn't be fetched. Try again in a minute.";
+                return;
+            }
+            plugin_names = data.plugins || {};
+            // an index cached before details existed has none until its next refresh
+            details = data.details || {};
+            status.hidden = true;
+            return loadInstalled().then(renderGrid);
+        });
+    }
+
+    function loadInstalled() {
+        return fetch("/plugins.json")
+        .then((response) => response.json())
+        .then((data) => { installed = data.plugins; });
+    }
+
+    function renderGrid() {
+        // loadIndex() renders once the catalogue lands, installing or not
+        if (Object.keys(plugin_names).length === 0) return;
+
+        var grid = document.getElementById("plugin-grid");
+        var chosen = document.querySelector("input[name=selected-plugin]:checked");
+        chosen = chosen && chosen.value;
+        grid.replaceChildren();
+
+        var remaining = Object.keys(plugin_names).filter((plugin) => !installed.includes(plugin));
+
+        // only categories with something left to install, so a choice never shows an empty grid
+        var filter = document.getElementById("category-filter");
+        var counts = {};
+        for (const plugin of remaining) {
+            const group = details[plugin].category;
+            counts[group] = (counts[group] || 0) + 1;
+        }
+        var categories = Object.keys(counts).sort();
+        // the choice lives in the url's #, which the browser keeps through the install redirect
+        var wanted = decodeURIComponent(location.hash.slice(1));
+        var category = categories.includes(wanted) ? wanted : "";
+        filter.replaceChildren(new Option(`All (${remaining.length})`, ""),
+            ...categories.map((name) => new Option(`${name} (${counts[name]})`, name)));
+        filter.value = category;
+        filter.hidden = remaining.length === 0;
+
+        var plugins = remaining
+            .filter((plugin) => !category || details[plugin].category === category)
+            .sort((a, b) => displayName(a).localeCompare(displayName(b)));
+
+        var status = document.getElementById("grid-status");
+        status.textContent = "All plugins installed";
+        status.hidden = remaining.length > 0;
+
+        for (const plugin of plugins) {
+            var item = document.createElement("li");
+            var card = document.createElement("label");
+            card.className = "plugin-card";
+            card.id = `card-${plugin}`;
+
+            var radio = document.createElement("input");
+            radio.type = "radio";
+            radio.name = "selected-plugin";
+            radio.value = plugin;
+            radio.disabled = installing !== null;
+            radio.checked = plugin === chosen && !radio.disabled;
+            radio.addEventListener("change", updateChoice);
+
+            var img = document.createElement("img");
+            img.src = `${thumbnail_base}/${plugin}/thumbnail.png`;
+            img.alt = "";
+            img.loading = "lazy";
+            img.width = 128;
+            img.height = 128;
+            // an unreachable index host still leaves a usable card
+            img.addEventListener("error", function() {
+                var blank = document.createElement("span");
+                blank.className = "no-thumb";
+                blank.textContent = displayName(plugin).charAt(0);
+                this.replaceWith(blank);
+            });
+
+            var name = document.createElement("span");
+            name.className = "name";
+            name.textContent = displayName(plugin);
+
+            var about = details[plugin] || {};
+            var description = document.createElement("span");
+            description.className = "description";
+            description.textContent = about.description || "";
+
+            var author = document.createElement("span");
+            author.className = "author";
+            author.textContent = about.author ? `by ${about.author}` : "";
+
+            card.append(radio, img, name, description, author);
+
+            if (plugin === installing) {
+                card.classList.add("installing");
+                var progress = document.createElement("span");
+                progress.className = "progress";
+                progress.appendChild(document.createElement("span"));
+                name.before(progress);
+            }
+
+            item.appendChild(card);
+            grid.appendChild(item);
+        }
+        grid.classList.toggle("busy", installing !== null);
+        updateChoice();
+    }
+
+    function updateChoice() {
+        var choice = document.querySelector("input[name=selected-plugin]:checked");
+        var output = document.getElementById("install-choice");
+        var button = document.getElementById("install-button");
+
+        if (installing) return;
+        if (choice) {
+            var strong = document.createElement("strong");
+            strong.textContent = displayName(choice.value);
+            output.replaceChildren(strong);
+        } else {
+            output.textContent = "Choose a plugin";
+        }
+        button.textContent = "Install";
+        button.disabled = !choice;
+    }
+
+    // /install.json hands out a finished result once, so the poll ends on it
+    function watchInstall() {
+        fetch("/install.json")
+        .then((response) => response.json())
+        .then((state) => {
+            var button = document.getElementById("install-button");
+            var output = document.getElementById("install-choice");
+            var warning = document.getElementById("install-error");
+
+            if (!state.plugin) {
+                installing = null;
+                return;
+            }
+
+            if (!state.finished) {
+                // only a change of plugin rebuilds the grid, a tick just moves the bar
+                if (installing !== state.plugin) {
+                    installing = state.plugin;
+                    renderGrid();
+                }
+                var percent = state.total > 0 ? Math.floor((100 * state.done) / state.total) : 0;
+                var fill = document.querySelector(".plugin-card.installing .progress span");
+                if (fill) fill.style.width = `${percent}%`;
+                button.disabled = true;
+                button.textContent = `${percent}%`;
+                output.textContent = `Installing ${displayName(state.plugin)}`;
+                warning.hidden = true;
+                setTimeout(watchInstall, 1000);
+                return;
+            }
+
+            installing = null;
+            warning.textContent = state.error ? `${displayName(state.plugin)}: ${state.error}` : "";
+            warning.hidden = !state.error;
+            loadInstalled().then(() => {
+                renderGrid();
+                if (!state.error) output.textContent = `${displayName(state.plugin)} installed`;
+            });
+        })
+        .catch(() => setTimeout(watchInstall, 2000));
+    }
+
+    // the radio has to stay enabled here or the browser leaves it out of the POST
+    document.getElementById("plugin-select").addEventListener("submit", () => {
+        document.getElementById("plugin-select").action = `/install${location.hash}`;
+        var button = document.getElementById("install-button");
+        button.textContent = "Installing...";
+        button.disabled = true;
+    });
+
+    document.getElementById("category-filter").addEventListener("change", function() {
+        history.replaceState(null, "", this.value ? `/install#${encodeURIComponent(this.value)}` : "/install");
+        renderGrid();
+    });
+
+    loadIndex();
+    watchInstall();
+</script>

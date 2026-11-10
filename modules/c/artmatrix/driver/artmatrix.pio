@@ -29,31 +29,6 @@ pulse_loop:
     jmp x-- pulse_loop side 0x0 ; Assert OEn for x+1 cycles
 .wrap
 
-.program artmatrix_row_inverted
-
-; side-set pin 0 is LATCH
-; side-set pin 1 is OEn
-; OUT pins are row select A-E
-;
-; Each FIFO record consists of:
-; - 5-bit row select (LSBs)
-; - Pulse width - 1 (27 MSBs)
-;
-; Repeatedly select a row, pulse LATCH, and generate a pulse of a certain
-; width on OEn.
-
-.side_set 2
-
-.wrap_target
-    out pins, 5 [1]    side 0x3 ; Deassert OEn, output row select
-    mov x, y    [3]    side 0x2 ; Pulse LATCH
-wait_loop:
-    jmp x-- wait_loop  side 0x3 ; Wait for row to latch
-    out x, 27          side 0x3 ; Get OEn pulse width
-pulse_loop:
-    jmp x-- pulse_loop side 0x1 ; Assert OEn for x+1 cycles
-.wrap
-
 % c-sdk {
 static inline void artmatrix_row_program_init(PIO pio, uint sm, uint offset, uint row_base_pin, uint n_row_pins, uint latch_base_pin, uint latch_cycles) {
     pio_sm_set_consecutive_pindirs(pio, sm, row_base_pin, n_row_pins, true);
@@ -162,5 +137,45 @@ static inline void artmatrix_data_rgb888_set_shift(PIO pio, uint sm, uint offset
         //instr = 0b110000001100000 | shamt;
     pio->instr_mem[offset + artmatrix_data_rgb888_offset_shift0] = instr;
     //pio->instr_mem[offset + artmatrix_data_rgb888_offset_shift1] = instr;
+}
+%}
+
+; The four WS2812 ambient LEDs, from pico-examples by way of plasma. One 24-bit
+; GRB word per LED, MSB first, in the top of each FIFO word.
+
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; Side-set still takes place when instruction stalls
+    jmp !x do_zero side 1 [T1 - 1] ; Branch on the bit we shifted out. Positive pulse
+do_one:
+    jmp  bitloop   side 1 [T2 - 1] ; Continue driving high, for a long pulse
+do_zero:
+    nop            side 0 [T2 - 1] ; Or drive low, for a short pulse
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, float freq) {
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = ws2812_program_get_default_config(offset);
+    sm_config_set_sideset_pins(&c, pin);
+    sm_config_set_out_shift(&c, false, true, 24);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    const uint cycles_per_bit = ws2812_T1 + ws2812_T2 + ws2812_T3;
+    sm_config_set_clkdiv(&c, clock_get_hz(clk_sys) / (freq * cycles_per_bit));
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
 }
 %}

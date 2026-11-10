@@ -7,7 +7,27 @@ set(PICO_NUM_GPIOS 48)
 # Board specific version of the frozen manifest
 set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest.py)
 
-set(MICROPY_C_HEAP_SIZE 4096)
+if(NOT DEFINED MICROPY_HW_ROMFS_BYTES)
+    math(EXPR MICROPY_HW_ROMFS_BYTES "1 * 1024 * 1024")
+endif()
+
+if(NOT DEFINED MICROPY_HW_FLASH_STORAGE_BYTES)
+    math(EXPR MICROPY_HW_FLASH_STORAGE_BYTES "(14 * 1024 * 1024) - ${MICROPY_HW_ROMFS_BYTES}")
+endif()
+
+add_compile_options(-fno-math-errno)   # hardware VSQRT on the M33 FPU (safe: MP math uses isnan/isinf, not errno)
+
+# Nothing of ours uses the C heap, but libstdc++ mallocs a 1088 byte emergency
+# exception pool from a static ctor, before main(). __StackLimit is __bss_end__
+# plus this, and nano-malloc extends the break to the next 4k page, so it can
+# need 1112 + 4095 bytes depending on where .bss happens to end. At 4096 the
+# boot panics with "Out of memory" whenever (__bss_end__ & 0xfff) > 2984, which
+# makes any change to a static's size a coin flip. 8192 always covers it.
+set(MICROPY_C_HEAP_SIZE 8192)
+
+# Enable PSRAM, should pick up CS and size from
+# the board header file.
+set(MICROPY_HW_ENABLE_PSRAM 1)
 
 # Links micropy_lib_lwip and sets MICROPY_PY_LWIP = 1
 # Picked up and expanded upon in mpconfigboard.h

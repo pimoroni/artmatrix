@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="static/stylesheet.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" href="/static/icon-512.png">
+    <title>Art Matrix Configuration</title>
+</head>
+
+<header>
+    <img src="/static/logo.svg" alt="Art Matrix">
+</header>
+
+<hr>
+<section id="rebooting">
+    <h3>Rebooting&hellip;</h3>
+    <p>This page will come back by itself once the Art Matrix is up again.</p>
+</section>
+
+<script>
+// poll until the board answers again, then go back to the settings page
+const poll = () => {
+    const c = new AbortController();
+    setTimeout(() => c.abort(), 2000);
+    fetch("/", {signal: c.signal})
+        .then(() => location.replace("/"), () => setTimeout(poll, 500));
+};
+setTimeout(poll, 2000);
+</script>
+
+{{ render_template("/html/footer.html") }}

@@ -16,11 +16,19 @@ list(APPEND CMAKE_MODULE_PATH "${PIMORONI_PICO_PATH}/micropython/modules")
 # Allows us to find /modules/duo75
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/..")
 
-set(PNGDEC_DIR "${CMAKE_CURRENT_LIST_DIR}/../modules/c/pngdec")
-set(JPEGDEC_DIR "${CMAKE_CURRENT_LIST_DIR}/../modules/c/jpegdec")
-
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)
+
+# PicoVector & MicroPython bindings
+# Single-core rasterisation on ArtMatrix (PV_DUAL_CORE is off by default).
+set(PV_DUAL_CORE OFF)
+set(PV_PICO3D ON)
+find_package(PICOVECTOR_MICROPYTHON CONFIG REQUIRED)
+
+# Build picovector for Pico. pico3d can split a render with core1, which runs
+# the display: artmatrix_bindings.cpp provides pv_core1_run/join and serves the
+# jobs from its core1 loop.
+target_compile_definitions(usermod_picovector INTERFACE PICO=1 PICO3D_EXTERNAL_CORE1=1)
 
 # Essential
 include(pimoroni_i2c/micropython)
@@ -31,28 +39,15 @@ include(micropython-common-breakouts)
 
 # Utility
 include(adcfft/micropython)
-include(plasma/micropython)
 
 # LEDs & Matrices
 include(modules/c/artmatrix/micropython)
-include(modules/c/picovector/micropython)
-
-# Build picovector for Pico
-target_compile_definitions(usermod_picovector INTERFACE TUFTY=1 PICO=1)
-
-# Build jpegdec for Pico
-target_compile_definitions(jpegdec PRIVATE PICO_BUILD)
-
-include(qrcode/micropython/micropython)
 
 # Still required for version.py
 include(modules_py/modules_py)
 
 # C++ Magic Memory
 include(cppmem/micropython)
-
-# Disable build-busting C++ exceptions
-include(micropython-disable-exceptions)
 
 # Must call `enable_ulab()` to enable
 include(micropython-common-ulab)
