@@ -57,6 +57,6 @@ Then:
 ### Installing Plugins
 
 * Visit `http://<name>.local` and press "Discover more plugins".
-* Pick the plugins you want and they'll be downloaded straight onto your Art Matrix.
+* Choose a plugin and press "Install". It will be downloaded straight onto your Art Matrix.
 
 Plugins live in their own repository at [https://github.com/pimoroni/artmatrix-plugins](https://github.com/pimoroni/artmatrix-plugins)
