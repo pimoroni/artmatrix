@@ -190,6 +190,9 @@ async def _parse_form_data(reader, headers):
   # discard first boundary line
   _dummy = await reader.readline()
 
+  delimiter = b"--" + boundary.encode()
+  terminator = delimiter + b"--"
+
   form = {}
   while True:
     # get the field name
@@ -198,19 +201,21 @@ async def _parse_form_data(reader, headers):
       break
     name = field_headers["content-disposition"].split('name="')[1][:-1]
     # get the field value
-    value = ""
+    lines = []
     while True:
       line = await reader.readline()
-      line = line.decode().strip()
-      # if we hit a boundary then save the value and move to next field
-      if line == "--" + boundary:
-        form[name] = value
-        break
-      # if we hit end of form data boundary then save value and return
-      if line == "--" + boundary + "--":
-        form[name] = value
+      if not line:
         return form
-      value += line
+      boundary_line = line.rstrip(b"\r\n")
+      if boundary_line == delimiter or boundary_line == terminator:
+        value = b"".join(lines)
+        if value.endswith(b"\r\n"):
+          value = value[:-2]
+        form[name] = value.decode()
+        if boundary_line == terminator:
+          return form
+        break
+      lines.append(line)
   return None
 
 
@@ -221,6 +226,8 @@ async def _parse_json_body(reader, headers):
   body = await reader.readexactly(content_length_bytes)
   return json.loads(body.decode())
 
+
+_write_chunk_size = 1024
 
 status_message_map = {
   200: "OK", 201: "Created", 202: "Accepted",
@@ -259,14 +266,15 @@ async def _handle_request(reader, writer):
     if request.headers["content-type"].startswith("application/json"):
       request.data = await _parse_json_body(reader, request.headers)
     if request.headers["content-type"].startswith("application/x-www-form-urlencoded"):
-      form_data = b""
-      content_length = int(request.headers["content-length"])
-      while content_length > 0:
-        data = await reader.read(content_length)
-        if len(data) == 0:
+      remaining = int(request.headers["content-length"])
+      chunks = []
+      while remaining > 0:
+        data = await reader.read(remaining)
+        if not data:
           break
-        content_length -= len(data)
-        form_data += data
+        chunks.append(data)
+        remaining -= len(data)
+      form_data = chunks[0] if len(chunks) == 1 else b"".join(chunks)
       request.form = _parse_query_string(form_data.decode())
 
   # A handler raising would otherwise kill this task with the socket still open,
@@ -327,20 +335,34 @@ async def _handle_request(reader, writer):
     await writer.drain()
   elif isinstance(response, FileResponse):
     # file
+    buffer = bytearray(FILE_CHUNK_SIZE)
+    buffer_view = memoryview(buffer)
     with open(response.file, "rb") as f:
       while True:
-        chunk = f.read(FILE_CHUNK_SIZE)
-        if not chunk:
+        count = f.readinto(buffer)
+        if not count:
           break
-        writer.write(chunk)
+        writer.write(buffer_view[:count])
         await writer.drain()
   # text goes out as bytes. the stream slices off what a write sent by its byte
   # count, so a str holding a multi-byte character loses characters when the
   # socket takes only part of it
   elif type(response.body).__name__ == "generator":
     # generator
+    pending = []
+    pending_size = 0
     for chunk in response.body:
-      writer.write(chunk.encode() if isinstance(chunk, str) else chunk)
+      if isinstance(chunk, str):
+        chunk = chunk.encode()
+      pending.append(chunk)
+      pending_size += len(chunk)
+      if pending_size >= _write_chunk_size:
+        writer.write(b"".join(pending))
+        await writer.drain()
+        pending = []
+        pending_size = 0
+    if pending:
+      writer.write(b"".join(pending))
       await writer.drain()
   else:
     # string/bytes

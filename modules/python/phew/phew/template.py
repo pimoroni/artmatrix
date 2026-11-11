@@ -11,6 +11,10 @@ async def render_template(template, **kwargs):
     data = f.read()
     token_caret = 0
 
+    params = {}
+    params.update(locals())
+    params.update(kwargs)
+
     while True:
       # find the next tag that needs evaluating
       start = data.find(b"{{", token_caret)
@@ -28,17 +32,11 @@ async def render_template(template, **kwargs):
       # output the bit before the tag
       yield data[token_caret:start]
 
-      # merge locals with the supplied named arguments and
-      # the response object
-      params = {}
-      params.update(locals())
-      params.update(kwargs)
-      #params["response"] = response
-
       # parse the expression
       try:
-        if expression.decode("utf-8") in params:
-          result = params[expression.decode("utf-8")]
+        name = expression.decode("utf-8")
+        if name in params:
+          result = params[name]
           result = result.replace("&", "&amp;")
           result = result.replace('"', "&quot;")
           result = result.replace("'", "&apos;")
