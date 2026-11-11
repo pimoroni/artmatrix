@@ -8,6 +8,8 @@ from . import logging
 # task can hold the loop for tens of milliseconds between them.
 FILE_CHUNK_SIZE = 4096
 
+REQUEST_HEAD_TIMEOUT_MS = 5000
+
 _routes = []
 catchall_handler = None
 loop = uasyncio.get_event_loop()
@@ -268,23 +270,39 @@ status_message_map = {
 }
 
 
+async def _read_request_head(reader):
+  request_line = await reader.readline()
+  method, uri, protocol = request_line.decode().split()
+  request = Request(method, uri, protocol)
+  request.headers = await _parse_headers(reader)
+  return request
+
+
 # handle an incoming request to the web server
 async def _handle_request(reader, writer):
+  try:
+    await _serve_request(reader, writer)
+  except Exception as e:  # noqa: BLE001
+    logging.error(f"! request failed: {e}")
+  finally:
+    try:
+      writer.close()
+      await writer.wait_closed()
+    except OSError:
+      pass
+
+
+async def _serve_request(reader, writer):
   response = None
 
   request_start_time = time.ticks_ms()
 
-  request_line = await reader.readline()
   try:
-    method, uri, protocol = request_line.decode().split()
+    request = await uasyncio.wait_for_ms(_read_request_head(reader), REQUEST_HEAD_TIMEOUT_MS)
   except Exception as e:  # noqa: BLE001
     logging.error(e)
-    writer.close()
-    await writer.wait_closed()
     return
 
-  request = Request(method, uri, protocol)
-  request.headers = await _parse_headers(reader)
   if "content-length" in request.headers and "content-type" in request.headers:
     if request.headers["content-type"].startswith("multipart/form-data"):
       request.form = await _parse_form_data(reader, request.headers)
@@ -349,7 +367,6 @@ async def _handle_request(reader, writer):
       response.headers.pop("Content-Length", None)
       send_body = False
 
-  # there is no file to stream
   if isinstance(response, FileResponse) and response.status != 200:
     send_body = False
 
@@ -406,9 +423,6 @@ async def _handle_request(reader, writer):
     body = response.body
     writer.write(body.encode() if isinstance(body, str) else body)
     await writer.drain()
-
-  writer.close()
-  await writer.wait_closed()
 
   processing_time = time.ticks_ms() - request_start_time
   logging.info(f"> {request.method} {request.path} ({response.status} {status_message}) [{processing_time}ms]")
