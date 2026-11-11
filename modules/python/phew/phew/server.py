@@ -9,6 +9,7 @@ from . import logging
 FILE_CHUNK_SIZE = 4096
 
 REQUEST_HEAD_TIMEOUT_MS = 5000
+REQUEST_BODY_TIMEOUT_MS = 5000
 
 _routes = []
 catchall_handler = None
@@ -278,6 +279,27 @@ async def _read_request_head(reader):
   return request
 
 
+async def _read_request_body(reader, request):
+  if "content-length" not in request.headers or "content-type" not in request.headers:
+    return
+  content_type = request.headers["content-type"]
+  if content_type.startswith("multipart/form-data"):
+    request.form = await _parse_form_data(reader, request.headers)
+  if content_type.startswith("application/json"):
+    request.data = await _parse_json_body(reader, request.headers)
+  if content_type.startswith("application/x-www-form-urlencoded"):
+    remaining = int(request.headers["content-length"])
+    chunks = []
+    while remaining > 0:
+      data = await reader.read(remaining)
+      if not data:
+        break
+      chunks.append(data)
+      remaining -= len(data)
+    form_data = chunks[0] if len(chunks) == 1 else b"".join(chunks)
+    request.form = _parse_query_string(form_data.decode())
+
+
 # handle an incoming request to the web server
 async def _handle_request(reader, writer):
   try:
@@ -303,43 +325,36 @@ async def _serve_request(reader, writer):
     logging.error(e)
     return
 
-  if "content-length" in request.headers and "content-type" in request.headers:
-    if request.headers["content-type"].startswith("multipart/form-data"):
-      request.form = await _parse_form_data(reader, request.headers)
-    if request.headers["content-type"].startswith("application/json"):
-      request.data = await _parse_json_body(reader, request.headers)
-    if request.headers["content-type"].startswith("application/x-www-form-urlencoded"):
-      remaining = int(request.headers["content-length"])
-      chunks = []
-      while remaining > 0:
-        data = await reader.read(remaining)
-        if not data:
-          break
-        chunks.append(data)
-        remaining -= len(data)
-      form_data = chunks[0] if len(chunks) == 1 else b"".join(chunks)
-      request.form = _parse_query_string(form_data.decode())
-
-  # A handler raising would otherwise kill this task with the socket still open,
-  # leaving the client to hang until it times out.
   try:
-    route = _match_route(request)
-    if route:
-      response = route.call_handler(request)
-    elif catchall_handler:
-      response = catchall_handler(request)
-    else:
-      response = ("Not Found", 404, "text/plain")
+    await uasyncio.wait_for_ms(_read_request_body(reader, request), REQUEST_BODY_TIMEOUT_MS)
+  except uasyncio.TimeoutError:
+    logging.error(f"! {request.method} {request.path} body timed out")
+    response = ("Request Timeout", 408, "text/plain")
   except Exception as e:  # noqa: BLE001
-    logging.exception(f"! {request.method} {request.path} raised {e}")
-    sys.print_exception(e)
-    response = ("500 Internal Server Error", 500, "text/plain")
+    logging.error(f"! {request.method} {request.path} bad body: {e}")
+    response = ("Bad Request", 400, "text/plain")
 
-  # a handler that returns nothing would otherwise take the connection down with
-  # it, leaving the socket open and the client waiting
   if response is None:
-    logging.error(f"! no response returned for {request.method} {request.path}")
-    response = ("Internal Server Error", 500, "text/plain")
+    # A handler raising would otherwise kill this task with the socket still open,
+    # leaving the client to hang until it times out.
+    try:
+      route = _match_route(request)
+      if route:
+        response = route.call_handler(request)
+      elif catchall_handler:
+        response = catchall_handler(request)
+      else:
+        response = ("Not Found", 404, "text/plain")
+    except Exception as e:  # noqa: BLE001
+      logging.exception(f"! {request.method} {request.path} raised {e}")
+      sys.print_exception(e)
+      response = ("500 Internal Server Error", 500, "text/plain")
+
+    # a handler that returns nothing would otherwise take the connection down with
+    # it, leaving the socket open and the client waiting
+    if response is None:
+      logging.error(f"! no response returned for {request.method} {request.path}")
+      response = ("Internal Server Error", 500, "text/plain")
 
   # if shorthand body generator only notation used then convert to tuple
   if type(response).__name__ == "generator":
