@@ -160,10 +160,10 @@ function ci_cmake_configure {
     # which would otherwise keep main as it was when this script last changed
     git -C "$CI_BUILD_ROOT/artmatrix-plugins" fetch -q origin "$ARTMATRIX_PLUGINS_VERSION" || return 1
     git -C "$CI_BUILD_ROOT/artmatrix-plugins" checkout -q --detach FETCH_HEAD || return 1
-    rm -rf "$CI_PROJECT_ROOT/examples/lib/plugins"
-    mkdir -p "$CI_PROJECT_ROOT/examples/lib/plugins"
+    rm -rf "$CI_PROJECT_ROOT/firmware/lib/plugins"
+    mkdir -p "$CI_PROJECT_ROOT/firmware/lib/plugins"
     for PLUGIN in "${BUNDLED_PLUGINS[@]}"; do
-        cp -R "$CI_BUILD_ROOT/artmatrix-plugins/$PLUGIN" "$CI_PROJECT_ROOT/examples/lib/plugins/" || return 1
+        cp -R "$CI_BUILD_ROOT/artmatrix-plugins/$PLUGIN" "$CI_PROJECT_ROOT/firmware/lib/plugins/" || return 1
     done
 
     cmake -S $CI_BUILD_ROOT/micropython/ports/rp2 -B "$BUILD_DIR" \
