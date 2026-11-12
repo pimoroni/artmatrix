@@ -8,6 +8,9 @@ from . import logging
 # task can hold the loop for tens of milliseconds between them.
 FILE_CHUNK_SIZE = 4096
 
+REQUEST_HEAD_TIMEOUT_MS = 5000
+REQUEST_BODY_TIMEOUT_MS = 5000
+
 _routes = []
 catchall_handler = None
 loop = uasyncio.get_event_loop()
@@ -21,8 +24,12 @@ def file_exists(filename):
 
 
 def urldecode(text):
+  """Decode url encoding, tolerating malformed input.
+
+  Non-hex characters after a % are passed through literally, and byte sequences
+  that are not valid utf-8 become the unicode replacement character."""
   text = text.replace("+", " ")
-  result = ""
+  result = []
   token_caret = 0
   # decode any % encoded characters
   while True:
@@ -31,18 +38,37 @@ def urldecode(text):
       result += text[token_caret:]
       break
     result += text[token_caret:start]
-    code = int(text[start + 1:start + 3], 16)
-    result += chr(code)
-    token_caret = start + 3
-  return result
+    encoded = bytearray()
+    # a utf-8 character can span several % escapes, so gather the whole run
+    while len(text) > start and text[start] == "%":
+      try:
+        encoded.append(int(text[start + 1:start + 3], 16))
+      except ValueError:
+        result += _decode_or_replace(encoded)
+        # not an encoded byte, so pass the text through as-is
+        result += text[start:start + 3]
+        encoded = bytearray()
+      token_caret = start + 3
+      start = start + 3
+    result += _decode_or_replace(encoded)
+  return "".join(result)
+
+
+def _decode_or_replace(encoded):
+  try:
+    return encoded.decode()
+  except (UnicodeError, UnicodeDecodeError):
+    return "\ufffd"
+
 
 def _parse_query_string(query_string):
   result = {}
   for parameter in query_string.split("&"):
-    key, value = parameter.split("=", 1)
-    key = urldecode(key)
-    value = urldecode(value)
-    result[key] = value
+    if not parameter:
+      continue
+    # a parameter with no "=" is a key with an empty value
+    key, _, value = parameter.partition("=")
+    result[urldecode(key)] = urldecode(value)
   return result
 
 
@@ -121,7 +147,7 @@ class FileResponse(Response):
         # epoch makes awkward to get right.
         self.headers["ETag"] = '"{0}-{1}"'.format(stat[6], stat[8])
     except OSError:
-      return False
+      pass
 
 
 class Route:
@@ -190,6 +216,9 @@ async def _parse_form_data(reader, headers):
   # discard first boundary line
   _dummy = await reader.readline()
 
+  delimiter = b"--" + boundary.encode()
+  terminator = delimiter + b"--"
+
   form = {}
   while True:
     # get the field name
@@ -198,19 +227,21 @@ async def _parse_form_data(reader, headers):
       break
     name = field_headers["content-disposition"].split('name="')[1][:-1]
     # get the field value
-    value = ""
+    lines = []
     while True:
       line = await reader.readline()
-      line = line.decode().strip()
-      # if we hit a boundary then save the value and move to next field
-      if line == "--" + boundary:
-        form[name] = value
-        break
-      # if we hit end of form data boundary then save value and return
-      if line == "--" + boundary + "--":
-        form[name] = value
+      if not line:
         return form
-      value += line
+      boundary_line = line.rstrip(b"\r\n")
+      if boundary_line == delimiter or boundary_line == terminator:
+        value = b"".join(lines)
+        if value.endswith(b"\r\n"):
+          value = value[:-2]
+        form[name] = value.decode()
+        if boundary_line == terminator:
+          return form
+        break
+      lines.append(line)
   return None
 
 
@@ -221,6 +252,8 @@ async def _parse_json_body(reader, headers):
   body = await reader.readexactly(content_length_bytes)
   return json.loads(body.decode())
 
+
+_write_chunk_size = 1024
 
 status_message_map = {
   200: "OK", 201: "Created", 202: "Accepted",
@@ -238,49 +271,90 @@ status_message_map = {
 }
 
 
+async def _read_request_head(reader):
+  request_line = await reader.readline()
+  method, uri, protocol = request_line.decode().split()
+  request = Request(method, uri, protocol)
+  request.headers = await _parse_headers(reader)
+  return request
+
+
+async def _read_request_body(reader, request):
+  if "content-length" not in request.headers or "content-type" not in request.headers:
+    return
+  content_type = request.headers["content-type"]
+  if content_type.startswith("multipart/form-data"):
+    request.form = await _parse_form_data(reader, request.headers)
+  if content_type.startswith("application/json"):
+    request.data = await _parse_json_body(reader, request.headers)
+  if content_type.startswith("application/x-www-form-urlencoded"):
+    remaining = int(request.headers["content-length"])
+    chunks = []
+    while remaining > 0:
+      data = await reader.read(remaining)
+      if not data:
+        break
+      chunks.append(data)
+      remaining -= len(data)
+    form_data = chunks[0] if len(chunks) == 1 else b"".join(chunks)
+    request.form = _parse_query_string(form_data.decode())
+
+
 # handle an incoming request to the web server
 async def _handle_request(reader, writer):
+  try:
+    await _serve_request(reader, writer)
+  except Exception as e:  # noqa: BLE001
+    logging.error(f"! request failed: {e}")
+  finally:
+    try:
+      writer.close()
+      await writer.wait_closed()
+    except OSError:
+      pass
+
+
+async def _serve_request(reader, writer):
   response = None
 
   request_start_time = time.ticks_ms()
 
-  request_line = await reader.readline()
   try:
-    method, uri, protocol = request_line.decode().split()
+    request = await uasyncio.wait_for_ms(_read_request_head(reader), REQUEST_HEAD_TIMEOUT_MS)
   except Exception as e:  # noqa: BLE001
     logging.error(e)
     return
 
-  request = Request(method, uri, protocol)
-  request.headers = await _parse_headers(reader)
-  if "content-length" in request.headers and "content-type" in request.headers:
-    if request.headers["content-type"].startswith("multipart/form-data"):
-      request.form = await _parse_form_data(reader, request.headers)
-    if request.headers["content-type"].startswith("application/json"):
-      request.data = await _parse_json_body(reader, request.headers)
-    if request.headers["content-type"].startswith("application/x-www-form-urlencoded"):
-      form_data = b""
-      content_length = int(request.headers["content-length"])
-      while content_length > 0:
-        data = await reader.read(content_length)
-        if len(data) == 0:
-          break
-        content_length -= len(data)
-        form_data += data
-      request.form = _parse_query_string(form_data.decode())
-
-  # A handler raising would otherwise kill this task with the socket still open,
-  # leaving the client to hang until it times out.
   try:
-    route = _match_route(request)
-    if route:
-      response = route.call_handler(request)
-    elif catchall_handler:
-      response = catchall_handler(request)
+    await uasyncio.wait_for_ms(_read_request_body(reader, request), REQUEST_BODY_TIMEOUT_MS)
+  except uasyncio.TimeoutError:
+    logging.error(f"! {request.method} {request.path} body timed out")
+    response = ("Request Timeout", 408, "text/plain")
   except Exception as e:  # noqa: BLE001
-    logging.exception(f"! {request.method} {request.path} raised {e}")
-    sys.print_exception(e)
-    response = ("500 Internal Server Error", 500, "text/plain")
+    logging.error(f"! {request.method} {request.path} bad body: {e}")
+    response = ("Bad Request", 400, "text/plain")
+
+  if response is None:
+    # A handler raising would otherwise kill this task with the socket still open,
+    # leaving the client to hang until it times out.
+    try:
+      route = _match_route(request)
+      if route:
+        response = route.call_handler(request)
+      elif catchall_handler:
+        response = catchall_handler(request)
+      else:
+        response = ("Not Found", 404, "text/plain")
+    except Exception as e:  # noqa: BLE001
+      logging.exception(f"! {request.method} {request.path} raised {e}")
+      sys.print_exception(e)
+      response = ("500 Internal Server Error", 500, "text/plain")
+
+    # a handler that returns nothing would otherwise take the connection down with
+    # it, leaving the socket open and the client waiting
+    if response is None:
+      logging.error(f"! no response returned for {request.method} {request.path}")
+      response = ("Internal Server Error", 500, "text/plain")
 
   # if shorthand body generator only notation used then convert to tuple
   if type(response).__name__ == "generator":
@@ -308,6 +382,9 @@ async def _handle_request(reader, writer):
       response.headers.pop("Content-Length", None)
       send_body = False
 
+  if isinstance(response, FileResponse) and response.status != 200:
+    send_body = False
+
   # the socket closes below, so say so rather than let the client attempt to
   # reuse the connection and hit the FIN
   response.headers["Connection"] = "close"
@@ -327,29 +404,40 @@ async def _handle_request(reader, writer):
     await writer.drain()
   elif isinstance(response, FileResponse):
     # file
+    buffer = bytearray(FILE_CHUNK_SIZE)
+    buffer_view = memoryview(buffer)
     with open(response.file, "rb") as f:
       while True:
-        chunk = f.read(FILE_CHUNK_SIZE)
-        if not chunk:
+        count = f.readinto(buffer)
+        if not count:
           break
-        writer.write(chunk)
+        writer.write(buffer_view[:count])
         await writer.drain()
   # text goes out as bytes. the stream slices off what a write sent by its byte
   # count, so a str holding a multi-byte character loses characters when the
   # socket takes only part of it
   elif type(response.body).__name__ == "generator":
     # generator
+    pending = []
+    pending_size = 0
     for chunk in response.body:
-      writer.write(chunk.encode() if isinstance(chunk, str) else chunk)
+      if isinstance(chunk, str):
+        chunk = chunk.encode()
+      pending.append(chunk)
+      pending_size += len(chunk)
+      if pending_size >= _write_chunk_size:
+        writer.write(b"".join(pending))
+        await writer.drain()
+        pending = []
+        pending_size = 0
+    if pending:
+      writer.write(b"".join(pending))
       await writer.drain()
   else:
     # string/bytes
     body = response.body
     writer.write(body.encode() if isinstance(body, str) else body)
     await writer.drain()
-
-  writer.close()
-  await writer.wait_closed()
 
   processing_time = time.ticks_ms() - request_start_time
   logging.info(f"> {request.method} {request.path} ({response.status} {status_message}) [{processing_time}ms]")

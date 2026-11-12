@@ -33,6 +33,7 @@ using the [Raspberry Pi Pico W](https://shop.pimoroni.com/products/raspberry-pi-
       - [warn(\*items)](#warnitems)
       - [error(\*items)](#erroritems)
       - [set\_truncate\_thresholds(truncate\_at, truncate\_to)](#set_truncate_thresholdstruncate_at-truncate_to)
+      - [disable\_logging\_types(types)](#disable_logging_typestypes)
     - [dns module](#dns-module)
       - [run\_catchall](#run_catchall)
     - [Helper functions](#helper-functions)
@@ -402,6 +403,19 @@ set_truncate_thresholds(3.5 * 1024, 2 * 1.024)
 ```
 
 Truncation always happens on the nearest line ending boundary so the truncated file may not exactly match the size specified.
+
+#### disable_logging_types(types)
+
+Stop writing log entries of the given types. Types are `LOG_INFO`, `LOG_WARNING`, `LOG_ERROR`, `LOG_DEBUG`, `LOG_EXCEPTION` and `LOG_ALL`, and can be combined with `|`. `enable_logging_types(types)` turns them back on.
+
+The web server logs every request at `info` level. Each entry is written to flash, which takes tens of milliseconds, so disable `LOG_INFO` if request latency matters:
+
+```python
+from phew import logging
+logging.disable_logging_types(logging.LOG_INFO)
+```
+
+Set `logging.log_file = None` to keep printing log entries without writing them to flash.
 
 ### dns module
 
