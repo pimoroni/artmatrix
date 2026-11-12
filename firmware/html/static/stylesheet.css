@@ -330,6 +330,30 @@ button.icon.delete {
   --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z'/></svg>");
 }
 
+/* on the thumbnail's corner when the index has a newer version */
+.plugin-card button.update {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  width: auto;
+  min-width: 0;
+  height: 1.75rem;
+  min-height: 0;
+  padding: 0 0.625rem;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.plugin-card button.update:hover { background: var(--accent-hover); border-color: var(--surface); color: #fff; }
+.plugin-card button.update.busy { animation: pulse 1s ease-in-out infinite; pointer-events: none; }
+
+@keyframes pulse { 50% { opacity: 0.45; } }
+
 input[type=checkbox][role=switch] {
   appearance: none;
   flex: none;
