@@ -127,19 +127,19 @@ function micropython_version {
 }
 
 function ci_genversion {
-    BOARD="artmatrix"
-    MICROPY_BOARD_DIR=$CI_PROJECT_ROOT/board
-    if [ -z ${CI_RELEASE_FILENAME+x} ]; then
-        CI_RELEASE_FILENAME=$BOARD
-    fi
-
     MICROPYTHON_SHA=`git -C "$CI_BUILD_ROOT/micropython" describe --always --long --abbrev=40 HEAD`
     PIMORONI_PICO_SHA=`git -C "$CI_BUILD_ROOT/pimoroni-pico" describe --always --long --abbrev=40 HEAD`
-    RELEASE_FILE="$CI_RELEASE_FILENAME"
 
-    cat << EOF > "$MICROPY_BOARD_DIR/version.py"
+    # releases show their tag on the settings page, every other build shows its date
+    BUILD_NAME=""
+    if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+        BUILD_NAME="$GITHUB_REF_NAME"
+    fi
+
+    # the port's modules/ copy is the one frozen; pimoroni-pico's genversion only writes it once
+    cat << EOF > "$CI_BUILD_ROOT/micropython/ports/rp2/modules/version.py"
 DATE="`date`"
-BUILD="$RELEASE_FILE"
+BUILD="$BUILD_NAME"
 MICROPYTHON_SHA="$MICROPYTHON_SHA"
 PIMORONI_PICO_SHA="$PIMORONI_PICO_SHA"
 EOF
