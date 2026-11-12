@@ -807,6 +807,36 @@ def remove_plugin(request):
     return "404 Not Found Buddy!", 404
 
 
+@server.route("/update", methods=["POST"])
+def update_plugin(request):
+    global install_state
+
+    plugin = request.query.get("plugin")
+
+    # installed and in the cached index, as a manually written POST could name anything
+    try:
+        with open(INDEX_CACHE) as file:
+            name = json.load(file)["plugins"][plugin]
+    except (OSError, ValueError, KeyError):
+        name = None
+
+    if plugin not in config.plugins or name is None:
+        return "404 Not Found Buddy!", 404
+
+    if install_state is not None and not install_state["finished"]:
+        return "Another install is running", 409
+
+    install_state = {"plugin": plugin,
+                     "name": name,
+                     "done": 0,
+                     "total": 0,
+                     "finished": False,
+                     "error": None}
+
+    loop.create_task(install_plugin(plugin))
+    return "OK", 200
+
+
 @server.route("/config", methods=["GET", "POST"])
 def configure_plugin(request):
 
@@ -893,15 +923,18 @@ def usage(_request):
 @server.route("/plugins.json")
 def plugins(_request):
     names = {}
+    hashes = {}
     for plugin in config.plugins:
         # no readable manifest leaves it out, and the page title-cases the folder
         try:
             with open(f"/lib/plugins/{plugin}/package.json") as file:
-                names[plugin] = json.load(file)["name"]
+                manifest = json.load(file)
+            hashes[plugin] = manifest.get("hash")
+            names[plugin] = manifest["name"]
         except (OSError, ValueError, KeyError):
             pass
 
-    j = {"plugins": config.plugins, "disabled": config.disabled_plugins, "names": names}
+    j = {"plugins": config.plugins, "disabled": config.disabled_plugins, "names": names, "hashes": hashes}
     return json.dumps(j), 200, "application/json"
 
 
@@ -1122,16 +1155,69 @@ async def install_plugin(plugin):
             # bump the counter by one
             install_state["done"] += 1
 
-        # now it's done, we can move the downloaded plugin to the right folder.
-        os.rename(temp_location, f"/lib/plugins/{plugin}")
+        target = f"/lib/plugins/{plugin}"
 
-        config.plugins.append(plugin)
-        load_plugins()
+        if plugin in config.plugins:
+            was_disabled = plugin in config.disabled_plugins
+            old_location = f"{temp_location}.old"
 
-        if plugin in config.disabled_plugins:
-            install_state["error"] = "installed but failed to start"
+            # the user's files are whatever neither version ships, like config.json or pictures
+            shipped = {"package.json"}
+            shipped.update(src for _dest, src in j["urls"])
+            try:
+                with open(f"{target}/package.json") as file:
+                    shipped.update(src for _dest, src in json.load(file)["urls"])
+            except (OSError, ValueError, KeyError):
+                pass
+
+            # left behind by an update that was cut off
+            try:
+                rmtree(old_location)
+            except OSError:
+                pass
+
+            # no awaits from here on, so the old version never runs half swapped
+            os.rename(target, old_location)
+            os.rename(temp_location, target)
+
+            folders = [""]
+            while folders:
+                folder = folders.pop()
+                for entry, kind, *_ in list(os.ilistdir(old_location + folder)):
+                    path = f"{folder}/{entry}"
+                    if kind & 0x4000:
+                        try:
+                            os.mkdir(target + path)
+                        except OSError as e:
+                            if e.errno != errno.EEXIST:
+                                raise
+                        folders.append(path)
+                    elif path[1:] not in shipped:
+                        os.rename(old_location + path, target + path)
+
+            rmtree(old_location)
+
+            for key in list(sys.modules):
+                if key == target or (key.startswith("plugins.") and key.split(".")[1] == plugin):
+                    del sys.modules[key]
+            plugin_failures.pop(plugin, None)
+
+            load_plugins()
+            reset_transition()
+
+            if plugin in config.disabled_plugins and not was_disabled:
+                install_state["error"] = "updated but failed to start"
         else:
-            write_config()
+            # now it's done, we can move the downloaded plugin to the right folder.
+            os.rename(temp_location, target)
+
+            config.plugins.append(plugin)
+            load_plugins()
+
+            if plugin in config.disabled_plugins:
+                install_state["error"] = "installed but failed to start"
+            else:
+                write_config()
 
     except (OSError, ValueError, KeyError, fetch.HTTPException):
         try:

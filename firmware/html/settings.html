@@ -267,6 +267,7 @@
     // Display names come from each plugin's package.json on the device. Without one, the directory name is used instead
     var plugin_names = {};
     var dragging;
+    var updating = null;
 
     function displayName(plugin) {
         return plugin_names[plugin] || plugin
@@ -278,9 +279,14 @@
     // Re-fetch just the plugin list after a mutation. A full page reload cost the
     // stylesheet again for every click.
     function loadPluginList() {
-        return fetch("/plugins.json")
-        .then((response) => response.json())
-        .then((data) => {
+        return Promise.all([
+            fetch("/plugins.json").then((response) => response.json()),
+            // no index or no internet, no updates offered
+            fetch("/index.json").then((response) => response.json()).catch(() => ({})),
+        ])
+        .then(([data, index]) => {
+            var latest = index.offline ? {} : (index.details || {});
+            var hashes = data.hashes || {};
             plugin_names = data.names || {};
             document.getElementById("all_plugins").replaceChildren();
             for (const plugin of data.plugins) {
@@ -342,7 +348,7 @@
                     card.className = "plugin-card";
 
                     var img = document.createElement("img");
-                    img.src = `/thumbnail/${plugin}`;
+                    img.src = `/thumbnail/${plugin}` + (hashes[plugin] ? `?v=${hashes[plugin]}` : "");
                     img.alt = "";
                     img.loading = "lazy";
                     img.width = 128;
@@ -371,6 +377,46 @@
                     controls.append(drag_handle, enable_toggle, config_link, remove_link);
 
                     card.append(img, name, controls);
+
+                    var newest = latest[plugin] && latest[plugin].hash;
+                    if (newest && newest !== hashes[plugin]) {
+                        var update = document.createElement("button");
+                        update.className = "update";
+                        update.textContent = "Update";
+                        if (updating === plugin) {
+                            update.textContent = "Updating…";
+                            update.classList.add("busy");
+                        }
+                        update.onclick = function() {
+                            var warning = document.getElementById("plugin-error");
+                            updating = plugin;
+                            this.textContent = "Updating…";
+                            this.classList.add("busy");
+                            fetch(`/update?plugin=${plugin}`, {
+                                method: 'POST',
+                            })
+                            .then((response) => {
+                                if (response.ok) {
+                                    watchInstall();
+                                    return;
+                                }
+                                return response.text().then((text) => {
+                                    updating = null;
+                                    warning.textContent = `${displayName(plugin)}: ${text}`;
+                                    warning.hidden = false;
+                                    loadPluginList();
+                                });
+                            })
+                            .catch(() => {
+                                updating = null;
+                                warning.textContent = `${displayName(plugin)}: couldn't reach the device`;
+                                warning.hidden = false;
+                                loadPluginList();
+                            });
+                        }
+                        card.append(update);
+                    }
+
                     item.appendChild(card);
 
                     item.draggable = true;
@@ -423,7 +469,13 @@
         .then((state) => {
             var warning = document.getElementById("plugin-error");
 
-            if (!state.plugin) return;
+            if (!state.plugin) {
+                if (updating) {
+                    updating = null;
+                    loadPluginList();
+                }
+                return;
+            }
 
             if (!state.finished) {
                 warning.hidden = true;
@@ -433,6 +485,7 @@
 
             warning.textContent = state.error ? `${state.name || displayName(state.plugin)}: ${state.error}` : "";
             warning.hidden = !state.error;
+            updating = null;
             loadPluginList();
         })
         .catch(() => setTimeout(watchInstall, 2000));
