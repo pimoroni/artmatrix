@@ -8,6 +8,7 @@ A 128×128 LED matrix that cycles through animated patterns, clocks, weather and
   - [Changing WiFi Details](#changing-wifi-details)
   - [Updating/Reflashing Firmware](#updatingreflashing-firmware)
   - [Installing Plugins](#installing-plugins)
+- [Writing Plugins](#writing-plugins)
 
 ## Specs
 
@@ -60,3 +61,7 @@ Then:
 * Choose a plugin and press "Install". It will be downloaded straight onto your Art Matrix.
 
 Plugins live in their own repository at [https://github.com/pimoroni/artmatrix-plugins](https://github.com/pimoroni/artmatrix-plugins)
+
+## Writing Plugins
+
+See the [API reference](docs/README.md).
